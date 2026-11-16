@@ -42,11 +42,14 @@ import {
   Check,
   Camera,
   Receipt,
+  Mic,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { ImportExcelDialog } from "@/components/import-excel-dialog";
 import { ReceiptCropper } from "@/components/receipt-cropper";
+import { VoiceTransactionDialog, useSpeechSupported } from "@/components/voice-transaction-dialog";
+import { parseVoiceTransaction } from "@/lib/voice-transaction";
 
 
 
@@ -68,6 +71,8 @@ export function TransactionsView() {
   const [cropSrc, setCropSrc] = useState<string | null>(null);
   const [isCropOpen, setIsCropOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isVoiceOpen, setIsVoiceOpen] = useState(false);
+  const speechSupported = useSpeechSupported();
 
   const isAdmin = useQuery(api.userProfiles.isAdmin);
   const isDeputy = useQuery(api.userProfiles.isDeputy);
@@ -242,6 +247,26 @@ export function TransactionsView() {
     setIsDialogOpen(true);
   };
 
+  // Hlasové zadání: rozpoznanou větu převést na předvyplněný formulář
+  const handleVoiceResult = (text: string) => {
+    const allCategories = [
+      ...(incomeCategories ?? []).map((c) => ({ name: c.name, type: "income" as const })),
+      ...(expenseCategories ?? []).map((c) => ({ name: c.name, type: "expense" as const })),
+    ];
+    const parsed = parseVoiceTransaction(text, allCategories);
+    console.log("Hlasové zadání:", text, parsed);
+    setIsVoiceOpen(false);
+    openDialog(parsed.type ?? "expense");
+    setFormData((prev) => ({
+      ...prev,
+      amount: parsed.amount !== undefined ? String(parsed.amount) : "",
+      description: parsed.description,
+      category: parsed.category ?? "",
+      date: parsed.date ?? prev.date,
+      paymentMethod: parsed.paymentMethod ?? prev.paymentMethod,
+    }));
+  };
+
   const categories = transactionType === "income" ? incomeCategories : expenseCategories;
   const categoryList = categories || [];
 
@@ -281,6 +306,18 @@ export function TransactionsView() {
         <h1 className="text-xl font-bold">Finance</h1>
         {canAddTransactions && (
           <div className="flex gap-2">
+            {speechSupported && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="px-2.5"
+                onClick={() => setIsVoiceOpen(true)}
+                aria-label="Zadat hlasem"
+                title="Zadat hlasem"
+              >
+                <Mic className="w-4 h-4" />
+              </Button>
+            )}
             {isAdmin && (
               <Button
                 size="sm"
@@ -537,6 +574,12 @@ export function TransactionsView() {
       </div>
 
       {/* Dialog pro přidání transakce */}
+      <VoiceTransactionDialog
+        open={isVoiceOpen}
+        onOpenChange={setIsVoiceOpen}
+        onResult={handleVoiceResult}
+      />
+
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
