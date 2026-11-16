@@ -8,9 +8,10 @@
  * @module
  */
 
-import type * as ResendOTP from "../ResendOTP.js";
+import type * as access from "../access.js";
 import type * as auth from "../auth.js";
 import type * as categories from "../categories.js";
+import type * as email from "../email.js";
 import type * as googleDrive from "../googleDrive.js";
 import type * as http from "../http.js";
 import type * as media from "../media.js";
@@ -29,9 +30,10 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
-  ResendOTP: typeof ResendOTP;
+  access: typeof access;
   auth: typeof auth;
   categories: typeof categories;
+  email: typeof email;
   googleDrive: typeof googleDrive;
   http: typeof http;
   media: typeof media;
