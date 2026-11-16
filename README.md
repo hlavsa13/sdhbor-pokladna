@@ -25,7 +25,7 @@ Role: hospodář (admin), zástupce hospodáře (deputy), tajemník (secretary) 
    ```bash
    npx @convex-dev/auth --prod
    ```
-   Na dotaz na `SITE_URL` zadej `https://app1.sdhbor.cz`.
+   Na dotaz na `SITE_URL` zadej `https://www.sdhbor.cz/pokladna`.
 
 ### 2. Proměnné prostředí v Convexu (produkce)
 Dashboard → projekt → Production → Settings → Environment Variables:
@@ -62,14 +62,15 @@ Přenesou se i uživatelé a jejich hesla. Všichni se jen jednou znovu přihlá
 | `FTP_SERVER` | FTP server z administrace Wedos |
 | `FTP_USERNAME` | FTP uživatel |
 | `FTP_PASSWORD` | FTP heslo |
-| `FTP_SERVER_DIR` | cílová složka, u subdomény typicky `/www/subdom/app1/` (musí končit lomítkem) |
+| `FTP_SERVER_DIR` | cílová složka na FTP, např. `/www/domains/sdhbor.cz/pokladna/` (musí končit lomítkem; ověř v FTP klientovi, kde leží web sdhbor.cz) |
 
 3. Po pushi do `main` (nebo ručně: Actions → Nasazení na Wedos → Run workflow) se aplikace nasadí.
 
-### 5. Wedos a doména
-1. V administraci Wedos založ subdoménu `app1` pro `sdhbor.cz` a ověř, do které složky míří.
-2. Zapni SSL certifikát (Let's Encrypt) pro `app1.sdhbor.cz`.
-3. Až nová verze funguje, přepni DNS záznam `app1.sdhbor.cz` z Macaly na Wedos.
+### 5. Wedos
+Aplikace běží v podsložce `/pokladna` stávajícího webu `www.sdhbor.cz` (v `next.config.js` je nastavené `basePath: "/pokladna"`).
+1. Přes FTP najdi složku, ve které leží web `sdhbor.cz`, a vytvoř v ní prázdnou složku `pokladna`.
+2. Cestu k ní zadej do secretu `FTP_SERVER_DIR`. Workflow nahrává a maže soubory jen uvnitř téhle složky, zbytku webu se nedotkne.
+3. Po ověření, že nová verze funguje, můžeš `app1.sdhbor.cz` v Macaly zrušit, případně ho přesměrovat na `https://www.sdhbor.cz/pokladna/`.
 
 ---
 
