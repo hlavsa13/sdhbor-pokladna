@@ -77,6 +77,7 @@ export default defineSchema({
     email: v.string(),
     code: v.string(),
     expiresAt: v.number(),
+    attempts: v.optional(v.number()),
   }).index("by_email", ["email"]),
 
   // Nastavení aplikace

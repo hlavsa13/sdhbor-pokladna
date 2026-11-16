@@ -2,6 +2,16 @@ import { action, internalMutation, internalQuery } from "./_generated/server"
 import { v } from "convex/values"
 import { internal } from "./_generated/api"
 import { Scrypt } from "lucia"
+import { appName, isEmailConfigured, sendEmail } from "./email"
+
+const MAX_ATTEMPTS = 5
+const CODE_VALIDITY_MS = 15 * 60 * 1000 // 15 minut
+
+function generateCode(): string {
+  const array = new Uint32Array(1)
+  crypto.getRandomValues(array)
+  return String(100000 + (array[0] % 900000))
+}
 
 // Internal: get user by email (any provider)
 export const getUserByEmail = internalQuery({
@@ -25,7 +35,7 @@ export const storeResetToken = internalMutation({
     for (const token of existing) {
       await ctx.db.delete(token._id)
     }
-    await ctx.db.insert("passwordResetTokens", { email, code, expiresAt })
+    await ctx.db.insert("passwordResetTokens", { email, code, expiresAt, attempts: 0 })
     console.log("Reset token stored for:", email)
   },
 })
@@ -39,16 +49,29 @@ export const applyPasswordReset = internalMutation({
       .query("passwordResetTokens")
       .withIndex("by_email", (q) => q.eq("email", email))
       .first()
-    if (!token) throw new Error("Neplatný nebo prošlý kód.")
-    if (Date.now() > token.expiresAt) throw new Error("Kód vypršel.")
-    if (token.code !== code) throw new Error("Neplatný kód.")
+    // Chyby vracíme (nevyhazujeme), aby se uložil počet neúspěšných pokusů –
+    // vyhozená výjimka by změny v mutaci vrátila zpět.
+    if (!token) return { ok: false as const, error: "Neplatný nebo prošlý kód." }
+    if (Date.now() > token.expiresAt) {
+      await ctx.db.delete(token._id)
+      return { ok: false as const, error: "Kód vypršel. Požádejte o nový." }
+    }
+    if (token.code !== code) {
+      const attempts = (token.attempts ?? 0) + 1
+      if (attempts >= MAX_ATTEMPTS) {
+        await ctx.db.delete(token._id)
+        return { ok: false as const, error: "Příliš mnoho pokusů. Požádejte o nový kód." }
+      }
+      await ctx.db.patch(token._id, { attempts })
+      return { ok: false as const, error: "Neplatný kód." }
+    }
 
     // Find the user (any provider)
     const user = await ctx.db
       .query("users")
       .withIndex("email", (q) => q.eq("email", email))
       .first()
-    if (!user) throw new Error("Uživatel nenalezen.")
+    if (!user) return { ok: false as const, error: "Uživatel nenalezen." }
 
     // Create or update the password provider account
     const existingAccount = await ctx.db
@@ -73,6 +96,7 @@ export const applyPasswordReset = internalMutation({
 
     // Delete the used token
     await ctx.db.delete(token._id)
+    return { ok: true as const }
   },
 })
 
@@ -87,38 +111,24 @@ export const requestReset = action({
       return
     }
 
-    const code = Math.floor(100000 + Math.random() * 900000).toString()
-    const expiresAt = Date.now() + 60 * 60 * 1000 // 1 hour
+    const code = generateCode()
+    const expiresAt = Date.now() + CODE_VALIDITY_MS
 
     await ctx.runMutation(internal.passwordReset.storeResetToken, { email, code, expiresAt })
 
-    // Send email via Macaly notification service
-    const endpoint = process.env.EMAIL_NOTIFICATION_ENDPOINT
-    const chatId = process.env.CHAT_ID
-    const appName = process.env.APP_NAME || "SDH Hospodaření"
-    const secretKey = process.env.SECRET_KEY
-
-    if (!endpoint || !chatId || !secretKey) {
+    if (!isEmailConfigured()) {
       console.log("Email env vars not set, cannot send reset code")
       throw new Error("E-mailové notifikace nejsou nakonfigurovány.")
     }
 
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        toEmail: email,
-        subject: `Reset hesla – ${appName}`,
-        message: `Váš kód pro reset hesla v aplikaci ${appName}:\n\n${code}\n\nKód platí 1 hodinu. Pokud jste o reset nežádali, ignorujte tento e-mail.`,
-        chatId,
-        appName,
-        secretKey,
-      }),
+    const result = await sendEmail({
+      to: email,
+      subject: `Reset hesla – ${appName()}`,
+      text: `Váš kód pro reset hesla v aplikaci ${appName()}:\n\n${code}\n\nKód platí 15 minut. Pokud jste o reset nežádali, ignorujte tento e-mail.`,
     })
 
-    if (!response.ok) {
-      const body = await response.text()
-      console.log("Failed to send reset email:", body)
+    if (!result.ok) {
+      console.log("Failed to send reset email:", result.error)
       throw new Error("Nepodařilo se odeslat e-mail s kódem.")
     }
 
@@ -135,11 +145,12 @@ export const confirmReset = action({
     }
 
     const hashedPassword = await new Scrypt().hash(newPassword)
-    await ctx.runMutation(internal.passwordReset.applyPasswordReset, {
+    const result = await ctx.runMutation(internal.passwordReset.applyPasswordReset, {
       email,
       code,
       hashedPassword,
     })
+    if (!result.ok) throw new Error(result.error)
 
     console.log("Password reset complete for:", email)
   },
