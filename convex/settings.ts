@@ -1,6 +1,7 @@
 import { v } from "convex/values"
 import { mutation, query } from "./_generated/server"
 import { getAuthUserId } from "@convex-dev/auth/server"
+import { getApprovedUserId } from "./access"
 
 // Výchozí hodnoty příspěvků
 const DEFAULT_FEE_AMOUNTS = {
@@ -11,7 +12,7 @@ const DEFAULT_FEE_AMOUNTS = {
 export const getFeeAmounts = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx)
+    const userId = await getApprovedUserId(ctx)
     if (!userId) return DEFAULT_FEE_AMOUNTS
     
     const adultSetting = await ctx.db

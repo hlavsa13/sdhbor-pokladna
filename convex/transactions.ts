@@ -1,6 +1,7 @@
 import { v } from "convex/values"
 import { mutation, query, internalMutation, internalQuery } from "./_generated/server"
 import { getAuthUserId } from "@convex-dev/auth/server"
+import { getApprovedUserId } from "./access"
 
 
 export const internalDeleteAll = internalMutation({
@@ -20,7 +21,7 @@ export const list = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx)
+    const userId = await getApprovedUserId(ctx)
     if (!userId) return []
     
     let allTransactions = await ctx.db
@@ -40,7 +41,7 @@ export const list = query({
 export const getStats = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx)
+    const userId = await getApprovedUserId(ctx)
     if (!userId) return null
     
     const transactions = await ctx.db.query("transactions").collect()
@@ -119,7 +120,7 @@ export const getStats = query({
 export const getBalanceBeforeYear = query({
   args: { year: v.number() },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx)
+    const userId = await getApprovedUserId(ctx)
     if (!userId) return null
 
     const startOfYear = new Date(args.year, 0, 1).getTime()
@@ -148,7 +149,7 @@ export const getBalanceBeforeYear = query({
 export const getStatsByYear = query({
   args: { year: v.number() },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx)
+    const userId = await getApprovedUserId(ctx)
     if (!userId) return null
 
     const startOfYear = new Date(args.year, 0, 1).getTime()
@@ -176,7 +177,7 @@ export const getStatsByYear = query({
 export const getMonthlyStats = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx)
+    const userId = await getApprovedUserId(ctx)
     if (!userId) return []
     
     const transactions = await ctx.db.query("transactions").collect()
@@ -213,7 +214,7 @@ export const getCategoryStats = query({
     year: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx)
+    const userId = await getApprovedUserId(ctx)
     if (!userId) return []
 
     let transactions = await ctx.db
@@ -242,7 +243,7 @@ export const getCategoryStats = query({
 export const getYearlyStats = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx)
+    const userId = await getApprovedUserId(ctx)
     if (!userId) return []
 
     const transactions = await ctx.db.query("transactions").collect()
@@ -278,7 +279,7 @@ export const getCategoryBalanceStats = query({
     year: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx)
+    const userId = await getApprovedUserId(ctx)
     if (!userId) return []
 
     let transactions = await ctx.db.query("transactions").collect()

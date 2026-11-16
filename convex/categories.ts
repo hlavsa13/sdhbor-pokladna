@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { query, mutation, action, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { getAuthUserId } from "@convex-dev/auth/server";
+import { getApprovedUserId } from "./access";
 import { Id } from "./_generated/dataModel";
 
 // Výchozí kategorie
@@ -29,7 +30,7 @@ export const list = query({
     type: v.optional(v.union(v.literal("income"), v.literal("expense"))),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await getApprovedUserId(ctx);
     if (!userId) return [];
 
     if (args.type) {

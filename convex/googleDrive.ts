@@ -238,13 +238,17 @@ export const syncToGoogleDrive = internalAction({
 export const testSync = action({
   args: {},
   handler: async (ctx): Promise<{ ok: boolean; message: string; detail?: string }> => {
+    const role = await ctx.runQuery(internal.access.internalCurrentRole, {})
+    if (role !== "admin") {
+      return { ok: false, message: "Nemáte oprávnění" }
+    }
     try {
       const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL
       const privateKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, "\n")
       const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID
 
       console.log("[TestSync] email:", email ? "OK" : "CHYBÍ")
-      console.log("[TestSync] privateKey:", privateKey ? `OK (${privateKey.substring(0, 40)}...)` : "CHYBÍ")
+      console.log("[TestSync] privateKey:", privateKey ? "OK" : "CHYBÍ")
       console.log("[TestSync] folderId:", folderId ? `OK (${folderId})` : "CHYBÍ")
 
       if (!email || !privateKey || !folderId) {
@@ -259,7 +263,7 @@ export const testSync = action({
       let accessToken: string
       try {
         accessToken = await getAccessToken(email, privateKey)
-        console.log("[TestSync] Auth OK, token:", accessToken.substring(0, 20) + "...")
+        console.log("[TestSync] Auth OK")
       } catch (e) {
         return { ok: false, message: "Chyba autentizace Google", detail: String(e) }
       }

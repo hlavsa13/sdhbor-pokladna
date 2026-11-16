@@ -1,11 +1,12 @@
 import { v } from "convex/values"
 import { query } from "./_generated/server"
 import { getAuthUserId } from "@convex-dev/auth/server"
+import { getApprovedUserId } from "./access"
 
 export const getValnaHromadaData = query({
   args: { year: v.number() },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx)
+    const userId = await getApprovedUserId(ctx)
     if (!userId) return null
 
     const startOfYear = new Date(args.year, 0, 1).getTime()

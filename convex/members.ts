@@ -1,13 +1,14 @@
 import { v } from "convex/values"
 import { mutation, query, internalMutation } from "./_generated/server"
 import { getAuthUserId } from "@convex-dev/auth/server"
+import { getApprovedUserId } from "./access"
 
 export const list = query({
   args: {
     activeOnly: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx)
+    const userId = await getApprovedUserId(ctx)
     if (!userId) return []
     
     const members = args.activeOnly
@@ -50,7 +51,7 @@ export const get = query({
     id: v.id("members"),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx)
+    const userId = await getApprovedUserId(ctx)
     if (!userId) return null
     
     const member = await ctx.db.get(args.id)
@@ -72,7 +73,7 @@ export const get = query({
 export const getStats = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx)
+    const userId = await getApprovedUserId(ctx)
     if (!userId) return null
     
     const members = await ctx.db.query("members").collect()
@@ -496,7 +497,7 @@ export const importMembers = mutation({
 })
 
 // Smazat všechny členy (interní funkce)
-export const deleteAll = mutation({
+export const deleteAll = internalMutation({
   args: {
     confirmDelete: v.optional(v.boolean()),
   },
