@@ -16,9 +16,11 @@ import {
   ArrowDownRight,
   Calendar,
   Banknote,
-  Building2
+  Building2,
+  Scale
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { ComponentType } from "react";
 
 export function DashboardView() {
   const { signOut } = useAuthActions();
@@ -35,6 +37,9 @@ export function DashboardView() {
     }).format(amount);
   };
 
+  const formatSigned = (amount: number) =>
+    `${amount > 0 ? "+" : ""}${formatCurrency(amount)}`;
+
   const formatDate = (timestamp: number) => {
     return new Intl.DateTimeFormat("cs-CZ", {
       day: "numeric",
@@ -43,7 +48,7 @@ export function DashboardView() {
   };
 
   return (
-    <div className="p-4 space-y-6">
+    <div className="p-4 md:p-6 space-y-6 max-w-5xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -67,64 +72,44 @@ export function DashboardView() {
       {/* Hlavní statistiky */}
       <Card className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground border-0 shadow-lg">
         <CardContent className="pt-6">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <p className="text-sm opacity-80">Celkový stav</p>
-              <p className="text-3xl font-bold">
-                {stats ? formatCurrency(stats.balance) : "—"}
-              </p>
-            </div>
-            <div className="w-14 h-14 rounded-full bg-white/20 flex items-center justify-center">
-              <Wallet className="w-7 h-7" />
-            </div>
+          {/* Celkový stav – vystředěný */}
+          <div className="text-center mb-4">
+            <p className="flex items-center justify-center gap-1.5 h-5 text-sm opacity-80">
+              <Wallet className="w-4 h-4 shrink-0" />
+              Celkový stav
+            </p>
+            <p className="text-3xl md:text-4xl font-bold mt-1">
+              {stats ? formatCurrency(stats.balance) : "—"}
+            </p>
           </div>
-          {/* Rozdělení: Hotovost / Banka */}
-          <div className="grid grid-cols-2 gap-4 pt-4 border-t border-white/20">
-            <div className="flex items-center gap-2">
-              <Banknote className="w-5 h-5 opacity-80" />
-              <div>
-                <p className="text-xs opacity-80">Hotovost</p>
-                <p className="text-lg font-semibold">
-                  {stats ? formatCurrency(stats.cashBalance) : "—"}
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Building2 className="w-5 h-5 opacity-80" />
-              <div>
-                <p className="text-xs opacity-80">Banka</p>
-                <p className="text-lg font-semibold">
-                  {stats ? formatCurrency(stats.bankBalance) : "—"}
-                </p>
-              </div>
-            </div>
-          </div>
-          {/* Roční statistiky */}
-          <div className="grid grid-cols-2 gap-4 pt-4 border-t border-white/20">
-            <div>
-              <p className="text-xs opacity-80">Rok {stats?.currentYear} příjmy</p>
-              <p className="text-lg font-semibold flex items-center gap-1">
-                <TrendingUp className="w-4 h-4" />
-                {stats ? formatCurrency(stats.yearlyIncome) : "—"}
+
+          {/* Mobil: mřížka 2×2 + výsledek na samostatném řádku; široká stránka: 5 údajů v řadě */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2 pt-4 border-t border-white/20">
+            <StatCell icon={Banknote} label="Hotovost" value={stats ? formatCurrency(stats.cashBalance) : "—"} />
+            <StatCell icon={Building2} label="Banka" value={stats ? formatCurrency(stats.bankBalance) : "—"} />
+            <StatCell icon={TrendingUp} label={`${stats?.currentYear ?? ""} příjmy`} value={stats ? formatCurrency(stats.yearlyIncome) : "—"} />
+            <StatCell icon={TrendingDown} label={`${stats?.currentYear ?? ""} výdaje`} value={stats ? formatCurrency(stats.yearlyExpense) : "—"} />
+
+            {/* Hospodářský výsledek aktuálního roku */}
+            <div className="col-span-2 md:col-span-1 flex md:flex-col items-center justify-between md:justify-center rounded-lg bg-black/20 px-3 py-2.5 md:px-1 md:py-2">
+              <p className="flex items-center gap-1 h-4 text-xs opacity-80 whitespace-nowrap">
+                <Scale className="w-3.5 h-3.5 shrink-0" />
+                {stats?.currentYear} výsledek
               </p>
-            </div>
-            <div>
-              <p className="text-xs opacity-80">Rok {stats?.currentYear} výdaje</p>
-              <p className="text-lg font-semibold flex items-center gap-1">
-                <TrendingDown className="w-4 h-4" />
-                {stats ? formatCurrency(stats.yearlyExpense) : "—"}
+              <p className="text-xl md:text-lg font-bold leading-tight md:mt-0.5">
+                {stats ? formatSigned(stats.yearlyIncome - stats.yearlyExpense) : "—"}
               </p>
             </div>
           </div>
         </CardContent>
       </Card>
 
-
-
+      {/* Na široké stránce Členové a Poslední pohyby vedle sebe */}
+      <div className="grid gap-6 md:grid-cols-[1fr_1.6fr] md:items-start">
       {/* Členové */}
       <Card>
         <CardContent className="pt-4">
-          <div className="flex items-center justify-between">
+          <div className="flex md:flex-col md:items-start items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
                 <Users className="w-5 h-5 text-primary" />
@@ -136,7 +121,7 @@ export function DashboardView() {
                 </p>
               </div>
             </div>
-            <div className="text-right">
+            <div className="text-right md:text-left md:pl-[52px]">
               <p className="text-xs text-muted-foreground">Zaplacené příspěvky</p>
               <p className="text-lg font-bold text-income">
                 {memberStats ? `${memberStats.paidFeesCount}/${memberStats.activeMembers}` : "—"}
@@ -207,6 +192,27 @@ export function DashboardView() {
           )}
         </CardContent>
       </Card>
+      </div>
+    </div>
+  );
+}
+
+function StatCell({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: ComponentType<{ className?: string }>;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center rounded-lg px-1 py-2">
+      <p className="flex items-center gap-1 h-4 text-xs opacity-80 whitespace-nowrap">
+        <Icon className="w-3.5 h-3.5 shrink-0" />
+        {label}
+      </p>
+      <p className="text-lg font-semibold leading-tight mt-0.5">{value}</p>
     </div>
   );
 }
