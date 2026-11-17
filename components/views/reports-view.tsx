@@ -1,11 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Card, CardContent } from "@/components/ui/card";
-import { Banknote, Building2, ChevronLeft, ChevronRight } from "lucide-react";
-import { Separator } from "@/components/ui/separator";
+import { Banknote, Building2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { ValnaHromadaPdfButton } from "@/components/valnahromada-pdf-button";
@@ -14,22 +13,33 @@ import { ExcelDownloadButton } from "@/components/excel-download-button";
 import { cn } from "@/lib/utils";
 
 const CURRENT_YEAR = new Date().getFullYear();
+const TOP_CATEGORIES = 5;
+const TOP_YEARS = 5;
 
 export function ReportsView() {
-  const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
-  const [catYear, setCatYear] = useState(CURRENT_YEAR);
+  // Jeden vybraný rok pro celou stránku
+  const [year, setYear] = useState(CURRENT_YEAR);
+  const [showAllCategories, setShowAllCategories] = useState(false);
+  const [showAllYears, setShowAllYears] = useState(false);
+  const [chartMode, setChartMode] = useState<"result" | "balance">("result");
+  const chartScrollRef = useRef<HTMLDivElement>(null);
 
-  const stats = useQuery(api.transactions.getStats);
-  const yearStats = useQuery(api.transactions.getStatsByYear, { year: selectedYear });
-  const jan1Balance = useQuery(api.transactions.getBalanceBeforeYear, { year: selectedYear });
-  const incomeCategories = useQuery(api.transactions.getCategoryStats, { type: "income", year: catYear });
-  const expenseCategories = useQuery(api.transactions.getCategoryStats, { type: "expense", year: catYear });
-  const categoryBalance = useQuery(api.transactions.getCategoryBalanceStats, { year: catYear });
+  const yearStats = useQuery(api.transactions.getStatsByYear, { year });
+  const jan1Balance = useQuery(api.transactions.getBalanceBeforeYear, { year });
+  const incomeCategories = useQuery(api.transactions.getCategoryStats, { type: "income", year });
+  const expenseCategories = useQuery(api.transactions.getCategoryStats, { type: "expense", year });
+  const categoryBalance = useQuery(api.transactions.getCategoryBalanceStats, { year });
   const yearlyStats = useQuery(api.transactions.getYearlyStats);
 
   // Dostupné roky z dat
   const availableYears = yearlyStats ? yearlyStats.map((y) => Number(y.year)) : [];
   const minYear = availableYears.length > 0 ? Math.min(...availableYears) : CURRENT_YEAR;
+
+  // Graf po letech: po načtení odscrollovat na nejnovější roky
+  useEffect(() => {
+    const el = chartScrollRef.current;
+    if (el) el.scrollLeft = el.scrollWidth;
+  }, [yearlyStats, chartMode]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("cs-CZ", {
@@ -39,17 +49,101 @@ export function ReportsView() {
     }).format(amount);
   };
 
-  const maxIncomeCategory = incomeCategories && incomeCategories.length > 0
-    ? Math.max(...incomeCategories.map((c) => c.amount))
-    : 0;
+  const signed = (amount: number) => `${amount >= 0 ? "+" : ""}${formatCurrency(amount)}`;
+  const balanceColor = (amount: number) => (amount >= 0 ? "text-income" : "text-expense");
 
-  const maxExpenseCategory = expenseCategories && expenseCategories.length > 0
-    ? Math.max(...expenseCategories.map((c) => c.amount))
-    : 0;
+  // Roky s kumulativním stavem na konci roku
+  const yearsWithBalance = (() => {
+    if (!yearlyStats) return [];
+    let running = 0;
+    return yearlyStats.map((y) => {
+      running += y.balance;
+      return { ...y, endBalance: running };
+    });
+  })();
+  const yearsDesc = [...yearsWithBalance].reverse();
+  const visibleYears = showAllYears ? yearsDesc : yearsDesc.slice(0, TOP_YEARS);
 
+  const chartData = yearsWithBalance.map((y) => ({
+    year: y.year,
+    value: chartMode === "result" ? y.balance : y.endBalance,
+  }));
+  const chartMaxAbs = chartData.length > 0 ? Math.max(...chartData.map((d) => Math.abs(d.value))) : 0;
+
+  // Pohyb peněz ve vybraném roce
+  const totals = yearStats && jan1Balance
+    ? {
+        start: { total: jan1Balance.balance, cash: jan1Balance.cashBalance, bank: jan1Balance.bankBalance },
+        income: { total: yearStats.income, cash: yearStats.cashIncome, bank: yearStats.bankIncome },
+        expense: { total: yearStats.expense, cash: yearStats.cashExpense, bank: yearStats.bankExpense },
+      }
+    : null;
+  const result = totals
+    ? {
+        total: totals.income.total - totals.expense.total,
+        cash: totals.income.cash - totals.expense.cash,
+        bank: totals.income.bank - totals.expense.bank,
+      }
+    : null;
+  const end = totals && result
+    ? {
+        total: totals.start.total + result.total,
+        cash: totals.start.cash + result.cash,
+        bank: totals.start.bank + result.bank,
+      }
+    : null;
+
+  const renderCategoryList = (
+    items: { category: string; value: number }[] | undefined,
+    kind: "income" | "expense" | "balance",
+    emptyText: string
+  ) => {
+    if (!items || items.length === 0) {
+      return <p className="text-sm text-muted-foreground text-center py-4">{emptyText}</p>;
+    }
+    const maxAbs = Math.max(...items.map((c) => Math.abs(c.value)));
+    const visible = showAllCategories ? items : items.slice(0, TOP_CATEGORIES);
+    return (
+      <div className="space-y-3">
+        {visible.map((cat) => {
+          const isPositive = kind === "income" || (kind === "balance" && cat.value >= 0);
+          const width = maxAbs > 0 ? (Math.abs(cat.value) / maxAbs) * 100 : 0;
+          return (
+            <div key={cat.category} className="space-y-1">
+              <div className="flex items-center justify-between text-sm">
+                <span className="font-medium">{cat.category}</span>
+                <span className={cn("font-semibold", isPositive ? "text-income" : "text-expense")}>
+                  {kind === "balance" ? signed(cat.value) : formatCurrency(cat.value)}
+                </span>
+              </div>
+              <div className="h-2 bg-muted rounded-full overflow-hidden">
+                <div
+                  className={cn("h-full rounded-full transition-all", isPositive ? "bg-income" : "bg-expense")}
+                  style={{ width: `${width}%` }}
+                />
+              </div>
+            </div>
+          );
+        })}
+        {items.length > TOP_CATEGORIES && (
+          <button
+            type="button"
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => setShowAllCategories((v) => !v)}
+          >
+            {showAllCategories ? (
+              <>Zobrazit méně <ChevronUp className="w-3.5 h-3.5" /></>
+            ) : (
+              <>Zobrazit všechny ({items.length}) <ChevronDown className="w-3.5 h-3.5" /></>
+            )}
+          </button>
+        )}
+      </div>
+    );
+  };
 
   return (
-    <div className="p-4 space-y-6">
+    <div className="p-4 md:p-6 space-y-6 max-w-5xl mx-auto">
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
@@ -62,420 +156,264 @@ export function ReportsView() {
         </div>
       </div>
 
-      {/* Aktuální stav */}
-      <Card className="bg-gradient-to-br from-primary/5 to-primary/10 border-primary/20">
-        <CardContent className="pt-4 text-center">
-          <p className="text-sm text-muted-foreground mb-1">Aktuální stav</p>
-          <p className={cn(
-            "text-4xl font-bold",
-            stats && stats.balance >= 0 ? "text-income" : "text-expense"
-          )}>
-            {stats ? formatCurrency(stats.balance) : "—"}
-          </p>
-          <p className="text-xs text-muted-foreground mt-0.5">Kč</p>
+      {/* Výběr roku – platí pro celou stránku */}
+      <Card>
+        <CardContent className="py-2 flex items-center justify-between">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => setYear((y) => y - 1)}
+            disabled={year <= minYear}
+            aria-label="Předchozí rok"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </Button>
+          <p className="text-base font-semibold">Rok {year}</p>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => setYear((y) => y + 1)}
+            disabled={year >= CURRENT_YEAR}
+            aria-label="Další rok"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </Button>
         </CardContent>
       </Card>
 
-      {/* Hotovost a banka */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid gap-6 md:grid-cols-2 md:items-start">
+        {/* Pohyb peněz ve vybraném roce */}
         <Card>
-          <CardContent className="pt-4 text-center">
-            <div className="flex items-center justify-center gap-2 mb-1">
-              <Banknote className="w-4 h-4 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">Hotovost</p>
-            </div>
-            <p className={cn(
-              "text-2xl font-bold",
-              stats && stats.cashBalance >= 0 ? "text-income" : "text-expense"
-            )}>
-              {stats ? formatCurrency(stats.cashBalance) : "—"}
-            </p>
-            <p className="text-xs text-muted-foreground mt-0.5">Kč</p>
+          <CardContent className="pt-4">
+            {totals && result && end ? (
+              <div className="grid grid-cols-[auto_1fr_1fr_1fr] gap-x-3 gap-y-2 items-baseline tabular-nums">
+                {/* Hlavička sloupců */}
+                <span />
+                <span className="text-xs text-muted-foreground text-right">Celkem</span>
+                <span className="text-xs text-muted-foreground flex items-center justify-end gap-1">
+                  <Banknote className="w-3.5 h-3.5" /> Hotovost
+                </span>
+                <span className="text-xs text-muted-foreground flex items-center justify-end gap-1">
+                  <Building2 className="w-3.5 h-3.5" /> Banka
+                </span>
+
+                {/* Stav k 1. 1. */}
+                <span className="text-xs text-muted-foreground">Stav 1. 1.</span>
+                <span className={cn("text-base font-bold text-right", balanceColor(totals.start.total))}>
+                  {formatCurrency(totals.start.total)}
+                </span>
+                <span className={cn("text-sm font-semibold text-right", balanceColor(totals.start.cash))}>
+                  {formatCurrency(totals.start.cash)}
+                </span>
+                <span className={cn("text-sm font-semibold text-right", balanceColor(totals.start.bank))}>
+                  {formatCurrency(totals.start.bank)}
+                </span>
+
+                {/* Příjmy */}
+                <span className="text-xs text-muted-foreground">Příjmy</span>
+                <span className="text-base font-bold text-right text-income">{formatCurrency(totals.income.total)}</span>
+                <span className="text-sm font-semibold text-right text-income">{formatCurrency(totals.income.cash)}</span>
+                <span className="text-sm font-semibold text-right text-income">{formatCurrency(totals.income.bank)}</span>
+
+                {/* Výdaje */}
+                <span className="text-xs text-muted-foreground">Výdaje</span>
+                <span className="text-base font-bold text-right text-expense">{formatCurrency(totals.expense.total)}</span>
+                <span className="text-sm font-semibold text-right text-expense">{formatCurrency(totals.expense.cash)}</span>
+                <span className="text-sm font-semibold text-right text-expense">{formatCurrency(totals.expense.bank)}</span>
+
+                {/* Výsledek roku */}
+                <span className="text-xs text-muted-foreground">Výsledek</span>
+                <span className={cn("text-base font-bold text-right", balanceColor(result.total))}>
+                  {signed(result.total)}
+                </span>
+                <span className={cn("text-sm font-semibold text-right", balanceColor(result.cash))}>
+                  {signed(result.cash)}
+                </span>
+                <span className={cn("text-sm font-semibold text-right", balanceColor(result.bank))}>
+                  {signed(result.bank)}
+                </span>
+
+                <div className="col-span-4 border-t" />
+
+                {/* Stav na konci roku / dnes */}
+                <span className="text-xs text-muted-foreground">
+                  {year === CURRENT_YEAR ? "Stav dnes" : "Stav 31. 12."}
+                </span>
+                <span className={cn("text-base font-bold text-right", balanceColor(end.total))}>
+                  {formatCurrency(end.total)}
+                </span>
+                <span className={cn("text-sm font-semibold text-right", balanceColor(end.cash))}>
+                  {formatCurrency(end.cash)}
+                </span>
+                <span className={cn("text-sm font-semibold text-right", balanceColor(end.bank))}>
+                  {formatCurrency(end.bank)}
+                </span>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-2">Načítání…</p>
+            )}
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-4 text-center">
-            <div className="flex items-center justify-center gap-2 mb-1">
-              <Building2 className="w-4 h-4 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">Banka</p>
-            </div>
-            <p className={cn(
-              "text-2xl font-bold",
-              stats && stats.bankBalance >= 0 ? "text-income" : "text-expense"
-            )}>
-              {stats ? formatCurrency(stats.bankBalance) : "—"}
-            </p>
-            <p className="text-xs text-muted-foreground mt-0.5">Kč</p>
-          </CardContent>
-        </Card>
+
+        {/* Kategorie */}
+        <Tabs defaultValue="income">
+          <p className="text-sm font-semibold mb-3">Kategorie — rok {year}</p>
+
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="income" className="text-income data-[state=active]:text-income text-xs">
+              Příjmy
+            </TabsTrigger>
+            <TabsTrigger value="expense" className="text-expense data-[state=active]:text-expense text-xs">
+              Výdaje
+            </TabsTrigger>
+            <TabsTrigger value="balance" className="text-balance data-[state=active]:text-balance text-xs">
+              Výsledek
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="income" className="mt-4">
+            <Card>
+              <CardContent className="pt-4">
+                {renderCategoryList(
+                  incomeCategories?.map((c) => ({ category: c.category, value: c.amount })),
+                  "income",
+                  "Zatím žádné příjmy"
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="expense" className="mt-4">
+            <Card>
+              <CardContent className="pt-4">
+                {renderCategoryList(
+                  expenseCategories?.map((c) => ({ category: c.category, value: c.amount })),
+                  "expense",
+                  "Zatím žádné výdaje"
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="balance" className="mt-4">
+            <Card>
+              <CardContent className="pt-4">
+                {renderCategoryList(
+                  categoryBalance?.map((c) => ({ category: c.category, value: c.balance })),
+                  "balance",
+                  "Zatím žádná data"
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
 
-      {/* Rok — s filtrem */}
+      {/* Po letech – graf a tabulka */}
       <Card>
         <CardContent className="pt-4 space-y-4">
-          {/* Selektor roku */}
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-semibold">Rok {selectedYear}</p>
-            <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                onClick={() => setSelectedYear((y) => y - 1)}
-                disabled={availableYears.length > 0 && selectedYear <= Math.min(...availableYears)}
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                onClick={() => setSelectedYear((y) => y + 1)}
-                disabled={selectedYear >= CURRENT_YEAR}
-              >
-                <ChevronRight className="w-4 h-4" />
-              </Button>
-            </div>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-semibold">Po letech</p>
+            <Tabs value={chartMode} onValueChange={(v) => setChartMode(v as "result" | "balance")}>
+              <TabsList className="h-8">
+                <TabsTrigger value="result" className="text-xs px-2.5">Výsledek</TabsTrigger>
+                <TabsTrigger value="balance" className="text-xs px-2.5">Konečný stav</TabsTrigger>
+              </TabsList>
+            </Tabs>
           </div>
 
-          {yearStats ? (
+          {chartData.length > 0 ? (
             <>
-              {/* Celkem */}
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <p className="text-xs text-muted-foreground mb-0.5">Příjmy</p>
-                  <p className="text-base font-bold text-income">{formatCurrency(yearStats.income)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground mb-0.5">Výdaje</p>
-                  <p className="text-base font-bold text-expense">{formatCurrency(yearStats.expense)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground mb-0.5">Stav</p>
-                  <p className={cn(
-                    "text-base font-bold",
-                    yearStats.income - yearStats.expense >= 0 ? "text-income" : "text-expense"
-                  )}>
-                    {formatCurrency(yearStats.income - yearStats.expense)}
-                  </p>
-                </div>
-              </div>
-
-              {/* Stav k 1. lednu */}
-              {jan1Balance && (
-                <div className="bg-muted/40 rounded-lg p-3">
-                  <p className="text-xs text-muted-foreground mb-2 font-medium uppercase tracking-wide">Stav k 1. 1. {selectedYear}</p>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-0.5">Celkem</p>
-                      <p className={cn("text-sm font-semibold", jan1Balance.balance >= 0 ? "text-income" : "text-expense")}>
-                        {formatCurrency(jan1Balance.balance)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-0.5">Hotovost</p>
-                      <p className={cn("text-sm font-semibold", jan1Balance.cashBalance >= 0 ? "text-income" : "text-expense")}>
-                        {formatCurrency(jan1Balance.cashBalance)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-0.5">Banka</p>
-                      <p className={cn("text-sm font-semibold", jan1Balance.bankBalance >= 0 ? "text-income" : "text-expense")}>
-                        {formatCurrency(jan1Balance.bankBalance)}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <Separator />
-
-              {/* Hotovost */}
-              <div>
-                <div className="flex items-center gap-1.5 mb-2">
-                  <Banknote className="w-3.5 h-3.5 text-muted-foreground" />
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Hotovost</p>
-                </div>
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-0.5">Příjmy</p>
-                    <p className="text-sm font-semibold text-income">{formatCurrency(yearStats.cashIncome)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-0.5">Výdaje</p>
-                    <p className="text-sm font-semibold text-expense">{formatCurrency(yearStats.cashExpense)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-0.5">Stav</p>
-                    <p className={cn(
-                      "text-sm font-semibold",
-                      yearStats.cashIncome - yearStats.cashExpense >= 0 ? "text-income" : "text-expense"
-                    )}>
-                      {formatCurrency(yearStats.cashIncome - yearStats.cashExpense)}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* Banka */}
-              <div>
-                <div className="flex items-center gap-1.5 mb-2">
-                  <Building2 className="w-3.5 h-3.5 text-muted-foreground" />
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Banka</p>
-                </div>
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-0.5">Příjmy</p>
-                    <p className="text-sm font-semibold text-income">{formatCurrency(yearStats.bankIncome)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-0.5">Výdaje</p>
-                    <p className="text-sm font-semibold text-expense">{formatCurrency(yearStats.bankExpense)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-0.5">Stav</p>
-                    <p className={cn(
-                      "text-sm font-semibold",
-                      yearStats.bankIncome - yearStats.bankExpense >= 0 ? "text-income" : "text-expense"
-                    )}>
-                      {formatCurrency(yearStats.bankIncome - yearStats.bankExpense)}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </>
-          ) : (
-            <p className="text-sm text-muted-foreground text-center py-2">Načítání…</p>
-          )}
-        </CardContent>
-      </Card>
-
-
-      {/* Kategorie */}
-      <Tabs defaultValue="income">
-        {/* Hlavička s názvem a selektorem roku */}
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-sm font-semibold">Kategorie — rok {catYear}</p>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={() => setCatYear((y) => y - 1)}
-              disabled={catYear <= minYear}
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={() => setCatYear((y) => y + 1)}
-              disabled={catYear >= CURRENT_YEAR}
-            >
-              <ChevronRight className="w-4 h-4" />
-            </Button>
-          </div>
-        </div>
-
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="income" className="text-income data-[state=active]:text-income text-xs">
-            Příjmy
-          </TabsTrigger>
-          <TabsTrigger value="expense" className="text-expense data-[state=active]:text-expense text-xs">
-            Výdaje
-          </TabsTrigger>
-          <TabsTrigger value="balance" className="text-balance data-[state=active]:text-balance text-xs">
-            Výsledek
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="income" className="mt-4">
-          <Card>
-            <CardContent className="pt-4">
-              {incomeCategories && incomeCategories.length > 0 ? (
-                <div className="space-y-3">
-                  {incomeCategories.map((cat, index) => (
-                    <div key={cat.category} className="space-y-1">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="font-medium">{cat.category}</span>
-                        <span className="text-income font-semibold">
-                          {formatCurrency(cat.amount)}
-                        </span>
-                      </div>
-                      <div className="h-2 bg-muted rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-income rounded-full transition-all"
-                          style={{
-                            width: `${(cat.amount / maxIncomeCategory) * 100}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  Zatím žádné příjmy
-                </p>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="expense" className="mt-4">
-          <Card>
-            <CardContent className="pt-4">
-              {expenseCategories && expenseCategories.length > 0 ? (
-                <div className="space-y-3">
-                  {expenseCategories.map((cat, index) => (
-                    <div key={cat.category} className="space-y-1">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="font-medium">{cat.category}</span>
-                        <span className="text-expense font-semibold">
-                          {formatCurrency(cat.amount)}
-                        </span>
-                      </div>
-                      <div className="h-2 bg-muted rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-expense rounded-full transition-all"
-                          style={{
-                            width: `${(cat.amount / maxExpenseCategory) * 100}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  Zatím žádné výdaje
-                </p>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="balance" className="mt-4">
-          <Card>
-            <CardContent className="pt-4">
-              {categoryBalance && categoryBalance.length > 0 ? (
-                <div className="space-y-3">
-                  {categoryBalance.map((cat) => {
-                    const isPositive = cat.balance >= 0;
-                    const maxAbs = Math.max(...categoryBalance.map((c) => Math.abs(c.balance)));
-                    const width = maxAbs > 0 ? (Math.abs(cat.balance) / maxAbs) * 100 : 0;
-                    return (
-                      <div key={cat.category} className="space-y-1">
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="font-medium">{cat.category}</span>
-                          <span className={cn("font-semibold", isPositive ? "text-income" : "text-expense")}>
-                            {isPositive ? "+" : ""}{formatCurrency(cat.balance)}
-                          </span>
-                        </div>
-                        <div className="h-2 bg-muted rounded-full overflow-hidden">
-                          <div
-                            className={cn("h-full rounded-full transition-all", isPositive ? "bg-income" : "bg-expense")}
-                            style={{ width: `${width}%` }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  Zatím žádná data
-                </p>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-
-
-      {/* Hospodaření po letech */}
-      <Card>
-        <CardContent className="pt-4">
-          <p className="text-sm font-semibold mb-4">Výsledek hospodaření po letech</p>
-          {yearlyStats && yearlyStats.length > 0 ? (
-            <div className="overflow-x-auto">
-              <div className="flex items-end gap-3 h-48 min-w-max px-1">
-                {yearlyStats.map((y) => {
-                  const isPositive = y.balance >= 0;
-                  const maxAbs = Math.max(...yearlyStats.map((r) => Math.abs(r.balance)));
-                  const height = maxAbs > 0 ? (Math.abs(y.balance) / maxAbs) * 100 : 0;
-                  return (
-                    <div key={y.year} className="flex flex-col items-center gap-1" style={{ minWidth: '52px' }}>
-                      <span className={cn("text-xs font-semibold tabular-nums whitespace-nowrap", isPositive ? "text-income" : "text-expense")}>
-                        {isPositive ? "+" : ""}{formatCurrency(y.balance)}
-                      </span>
-                      <div className="w-10 flex items-end" style={{ height: '140px' }}>
-                        <div
-                          className={cn("w-full rounded-t transition-all", isPositive ? "bg-income" : "bg-expense")}
-                          style={{ height: `${height}%` }}
-                        />
-                      </div>
-                      <span className="text-xs text-muted-foreground font-medium">{y.year}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground text-center py-4">
-              Zatím žádná data
-            </p>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Konečný stav po letech */}
-      <Card>
-        <CardContent className="pt-4">
-          <p className="text-sm font-semibold mb-4">Konečný stav po letech</p>
-          {yearlyStats && yearlyStats.length > 0 ? (() => {
-            // Kumulativní součet
-            let running = 0;
-            const cumulative = yearlyStats.map((y) => {
-              running += y.balance;
-              return { year: y.year, balance: running };
-            });
-            const maxAbs = Math.max(...cumulative.map((r) => Math.abs(r.balance)));
-            return (
-              <div className="overflow-x-auto">
+              {/* Graf – klepnutím na sloupec se vybere rok */}
+              <div ref={chartScrollRef} className="overflow-x-auto">
                 <div className="flex items-end gap-3 h-48 min-w-max px-1">
-                  {cumulative.map((y) => {
-                    const isPositive = y.balance >= 0;
-                    const height = maxAbs > 0 ? (Math.abs(y.balance) / maxAbs) * 100 : 0;
+                  {chartData.map((d) => {
+                    const isPositive = d.value >= 0;
+                    const height = chartMaxAbs > 0 ? (Math.abs(d.value) / chartMaxAbs) * 100 : 0;
+                    const isSelected = Number(d.year) === year;
                     return (
-                      <div key={y.year} className="flex flex-col items-center gap-1" style={{ minWidth: '52px' }}>
+                      <button
+                        type="button"
+                        key={d.year}
+                        onClick={() => setYear(Number(d.year))}
+                        className="flex flex-col items-center gap-1"
+                        style={{ minWidth: "52px" }}
+                      >
                         <span className={cn("text-xs font-semibold tabular-nums whitespace-nowrap", isPositive ? "text-income" : "text-expense")}>
-                          {formatCurrency(y.balance)}
+                          {chartMode === "result" ? signed(d.value) : formatCurrency(d.value)}
                         </span>
-                        <div className="w-10 flex items-end" style={{ height: '140px' }}>
+                        <div className="w-10 flex items-end" style={{ height: "140px" }}>
                           <div
-                            className={cn("w-full rounded-t transition-all", isPositive ? "bg-income" : "bg-expense")}
+                            className={cn(
+                              "w-full rounded-t transition-all",
+                              isPositive ? "bg-income" : "bg-expense",
+                              isSelected && "ring-2 ring-foreground/40 ring-offset-2 ring-offset-background"
+                            )}
                             style={{ height: `${height}%` }}
                           />
                         </div>
-                        <span className="text-xs text-muted-foreground font-medium">{y.year}</span>
-                      </div>
+                        <span className={cn("text-xs", isSelected ? "font-bold text-foreground" : "text-muted-foreground font-medium")}>
+                          {d.year}
+                        </span>
+                      </button>
                     );
                   })}
                 </div>
               </div>
-            );
-          })() : (
+
+              {/* Tabulka – klepnutím na řádek se vybere rok */}
+              <div className="border-t pt-2">
+                <div className="grid grid-cols-[auto_1fr_1fr_1fr_1fr] gap-x-3 text-xs text-muted-foreground px-1 pb-1">
+                  <span>Rok</span>
+                  <span className="text-right">Příjmy</span>
+                  <span className="text-right">Výdaje</span>
+                  <span className="text-right">Výsledek</span>
+                  <span className="text-right">Stav</span>
+                </div>
+                {visibleYears.map((y) => {
+                  const isSelected = Number(y.year) === year;
+                  return (
+                    <button
+                      type="button"
+                      key={y.year}
+                      onClick={() => setYear(Number(y.year))}
+                      className={cn(
+                        "w-full grid grid-cols-[auto_1fr_1fr_1fr_1fr] gap-x-3 text-sm tabular-nums px-1 py-1.5 rounded-md text-left hover:bg-muted/40",
+                        isSelected && "bg-muted/60 font-semibold"
+                      )}
+                    >
+                      <span>{y.year}</span>
+                      <span className="text-right text-income">{formatCurrency(y.income)}</span>
+                      <span className="text-right text-expense">{formatCurrency(y.expense)}</span>
+                      <span className={cn("text-right", balanceColor(y.balance))}>{signed(y.balance)}</span>
+                      <span className={cn("text-right", balanceColor(y.endBalance))}>{formatCurrency(y.endBalance)}</span>
+                    </button>
+                  );
+                })}
+                {yearsDesc.length > TOP_YEARS && (
+                  <button
+                    type="button"
+                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mt-2 px-1"
+                    onClick={() => setShowAllYears((v) => !v)}
+                  >
+                    {showAllYears ? (
+                      <>Zobrazit méně <ChevronUp className="w-3.5 h-3.5" /></>
+                    ) : (
+                      <>Zobrazit všechny roky (od {yearsWithBalance[0]?.year}) <ChevronDown className="w-3.5 h-3.5" /></>
+                    )}
+                  </button>
+                )}
+              </div>
+            </>
+          ) : (
             <p className="text-sm text-muted-foreground text-center py-4">
               Zatím žádná data
             </p>
           )}
         </CardContent>
       </Card>
-
     </div>
   );
 }
