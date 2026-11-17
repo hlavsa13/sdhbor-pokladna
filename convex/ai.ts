@@ -35,8 +35,13 @@ export const internalCategories = internalQuery({
 
 const TOOL_NAME = "zapsat_transakci"
 
+// Kategorie se AI nabízí včetně typu, aby výdaj nedostal kategorii příjmů
+const TYPE_LABEL = { income: "příjem", expense: "výdaj" } as const
+const categoryOption = (c: { name: string; type: string }) =>
+  `${TYPE_LABEL[c.type as "income" | "expense"] ?? c.type} / ${c.name}`
+
 // Nástroj se sestavuje pro každý dotaz, aby kategorie byla pevný výběr ze seznamu
-const buildTool = (categoryNames: string[]) => ({
+const buildTool = (categoryOptions: string[]) => ({
   name: TOOL_NAME,
   description: "Zapíše rozpoznanou transakci do pokladny hasičského sboru.",
   input_schema: {
@@ -51,8 +56,8 @@ const buildTool = (categoryNames: string[]) => ({
       description: { type: "string", description: "Krátký český popis, např. 'Hornbach – hadice, spojka' nebo 'Pronájem hasičárny'." },
       category: {
         type: "string",
-        enum: [...categoryNames, ""],
-        description: "Nejbližší vhodná kategorie ze seznamu. Prázdný řetězec jen tehdy, když opravdu žádná nesouvisí.",
+        enum: [...categoryOptions, ""],
+        description: "Nejbližší vhodná kategorie ve tvaru 'typ / název'. Typ musí odpovídat poli type (výdaj = expense, příjem = income). Prázdný řetězec jen tehdy, když opravdu žádná nesouvisí.",
       },
       paymentMethod: {
         type: "string",
@@ -76,8 +81,12 @@ function validate(raw: Record<string, unknown>, categories: { name: string; type
   if (typeof raw.description === "string" && raw.description.trim()) out.description = raw.description.trim().slice(0, 200)
   if (typeof raw.category === "string") {
     const wanted = normalize(raw.category)
-    const candidates = categories.filter((c) => normalize(c.name) === wanted)
-    const match = candidates.find((c) => !out.type || c.type === out.type) ?? candidates[0]
+    // Přijímá "výdaj / Název" i samotný "Název"; kategorie musí sedět k typu transakce
+    const match = categories.find(
+      (c) =>
+        (normalize(categoryOption(c)) === wanted || normalize(c.name) === wanted) &&
+        (!out.type || c.type === out.type)
+    )
     if (match) {
       out.category = match.name
       out.type ??= match.type as "income" | "expense"
@@ -117,7 +126,7 @@ export const parseTransaction = action({
       `Dnešní datum je ${today}. Relativní data (včera, minulý pátek) přepočítej podle něj.`,
       `Povolené kategorie příjmů: ${categoryList("income")}.`,
       `Povolené kategorie výdajů: ${categoryList("expense")}.`,
-      "Vždy vyber nejbližší vhodnou kategorii ze seznamu podle obsahu (např. nápoje a jídlo k akci, materiál k vybavení). Prázdnou ji nech jen tehdy, když opravdu žádná nesouvisí. Hospodář návrh před uložením zkontroluje.",
+      "Vždy vyber nejbližší vhodnou kategorii ze seznamu podle obsahu (např. nápoje a jídlo k akci, materiál k vybavení). U výdaje vybírej jen z kategorií výdajů, u příjmu jen z kategorií příjmů. Prázdnou ji nech jen tehdy, když opravdu žádná nesouvisí. Hospodář návrh před uložením zkontroluje.",
       "Částky jsou v Kč. Nevymýšlej údaje, které v podkladu nejsou.",
     ].join("\n")
 
@@ -144,7 +153,7 @@ export const parseTransaction = action({
           model: process.env.AI_MODEL || DEFAULT_MODEL,
           max_tokens: 500,
           system,
-          tools: [buildTool(Array.from(new Set(categories.map((c) => c.name))))],
+          tools: [buildTool(Array.from(new Set(categories.map(categoryOption))))],
           tool_choice: { type: "tool", name: TOOL_NAME },
           messages: [{ role: "user", content }],
         }),
