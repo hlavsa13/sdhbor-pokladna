@@ -1,0 +1,15 @@
+{
+  "name": "Pokladna SDH Bor",
+  "short_name": "Pokladna SDH",
+  "description": "Hospodaření sboru dobrovolných hasičů Bor",
+  "lang": "cs",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#D11A1A",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
