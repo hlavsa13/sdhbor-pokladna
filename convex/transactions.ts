@@ -2,6 +2,7 @@ import { v } from "convex/values"
 import { mutation, query, internalMutation, internalQuery } from "./_generated/server"
 import { getAuthUserId } from "@convex-dev/auth/server"
 import { getApprovedUserId } from "./access"
+import type { Id } from "./_generated/dataModel"
 
 
 export const internalDeleteAll = internalMutation({
@@ -335,6 +336,7 @@ export const create = mutation({
     paymentMethod: v.union(v.literal("cash"), v.literal("bank")),
     date: v.number(),
     receiptStorageId: v.optional(v.id("_storage")),
+    paidBy: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx)
@@ -371,6 +373,8 @@ export const update = mutation({
     date: v.optional(v.number()),
     receiptStorageId: v.optional(v.id("_storage")),
     removeReceipt: v.optional(v.boolean()),
+    // Prázdný řetězec = smazat údaj, kdo platil
+    paidBy: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx)
@@ -392,7 +396,11 @@ export const update = mutation({
       }
     }
     
-    const { id, removeReceipt, ...updates } = args
+    const { id, removeReceipt, paidBy, ...updates } = args
+
+    if (paidBy !== undefined) {
+      await ctx.db.patch(id, { paidBy: paidBy.trim() || undefined })
+    }
 
     // Pokud chceme smazat účtenku, nastavíme na undefined
     if (removeReceipt) {
@@ -527,5 +535,117 @@ export const importTransactions = mutation({
     }
     
     return { imported }
+  },
+})
+
+// ---------------------------------------------------------------------------
+// K proplacení: výdaje, které někdo zaplatil ze svého a ještě nejsou proplacené
+export const listToReimburse = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getApprovedUserId(ctx)
+    if (!userId) return []
+    const expenses = await ctx.db
+      .query("transactions")
+      .withIndex("by_type", (q) => q.eq("type", "expense"))
+      .collect()
+    return expenses
+      .filter((t) => t.paidBy && !t.reimbursed)
+      .sort((a, b) => b.date - a.date)
+  },
+})
+
+export const markReimbursed = mutation({
+  args: { id: v.id("transactions") },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx)
+    if (!userId) throw new Error("Nepřihlášený uživatel")
+    const profile = await ctx.db
+      .query("userProfiles")
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
+      .first()
+    if (!profile || (profile.role !== "admin" && profile.role !== "deputy")) {
+      throw new Error("Nemáte oprávnění preplácet výdaje")
+    }
+    await ctx.db.patch(args.id, { reimbursed: true })
+  },
+})
+
+// ---------------------------------------------------------------------------
+// Inventura hotovosti
+const CASH_DIFF_CATEGORY = "Inventurní rozdíl"
+
+export const listCashCounts = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getApprovedUserId(ctx)
+    if (!userId) return []
+    return await ctx.db.query("cashCounts").withIndex("by_countedAt").order("desc").take(10)
+  },
+})
+
+export const recordCashCount = mutation({
+  args: {
+    counted: v.number(),
+    denominations: v.optional(v.record(v.string(), v.number())),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx)
+    if (!userId) throw new Error("Nepřihlášený uživatel")
+    const profile = await ctx.db
+      .query("userProfiles")
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
+      .first()
+    if (!profile || (profile.role !== "admin" && profile.role !== "deputy")) {
+      throw new Error("Nemáte oprávnění dělat inventuru")
+    }
+    if (!isFinite(args.counted) || args.counted < 0) throw new Error("Neplatná částka")
+
+    // Stav hotovosti podle aplikace (stejně jako v getStats: bez způsobu platby = hotovost)
+    const all = await ctx.db.query("transactions").collect()
+    const cash = all.filter((t) => !t.paymentMethod || t.paymentMethod === "cash")
+    const expected =
+      cash.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0) -
+      cash.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0)
+
+    const difference = Math.round((args.counted - expected) * 100) / 100
+    const now = new Date()
+    const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
+
+    let transactionId: Id<"transactions"> | undefined = undefined
+    if (difference !== 0) {
+      const type = difference > 0 ? "income" : "expense"
+      // Kategorie „Inventurní rozdíl“ – založit, pokud pro daný typ ještě neexistuje
+      const existingCategory = await ctx.db
+        .query("categories")
+        .withIndex("by_name", (q) => q.eq("name", CASH_DIFF_CATEGORY))
+        .filter((q) => q.eq(q.field("type"), type))
+        .first()
+      if (!existingCategory) {
+        await ctx.db.insert("categories", { name: CASH_DIFF_CATEGORY, type, createdAt: Date.now() })
+      }
+      transactionId = await ctx.db.insert("transactions", {
+        type,
+        amount: Math.abs(difference),
+        description: "Inventura pokladny – rozdíl",
+        category: CASH_DIFF_CATEGORY,
+        paymentMethod: "cash",
+        date: today,
+        createdBy: userId,
+        createdAt: Date.now(),
+      })
+    }
+
+    await ctx.db.insert("cashCounts", {
+      countedAt: Date.now(),
+      counted: args.counted,
+      expected,
+      difference,
+      denominations: args.denominations,
+      transactionId,
+      createdBy: userId,
+    })
+
+    return { expected, difference }
   },
 })
