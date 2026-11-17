@@ -44,6 +44,8 @@ import {
   Receipt,
   Mic,
   ScanLine,
+  Search,
+  User,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -57,6 +59,10 @@ import { imageToBase64Jpeg } from "@/lib/image-to-base64";
 
 const CURRENT_YEAR = new Date().getFullYear();
 
+// Porovnání bez ohledu na velikost písmen a diakritiku
+const normalizeText = (s: string) =>
+  s.toLowerCase().normalize("NFD").replace(/\p{M}/gu, "");
+
 export function TransactionsView() {
   const [activeTab, setActiveTab] = useState<"all" | "income" | "expense">("all");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -68,6 +74,9 @@ export function TransactionsView() {
   const [selectedYear, setSelectedYear] = useState<string>(String(CURRENT_YEAR));
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>("all");
+  const [searchText, setSearchText] = useState("");
+  const searchQuery = normalizeText(searchText.trim());
+  const isSearching = searchQuery.length > 0;
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
   const [existingReceiptStorageId, setExistingReceiptStorageId] = useState<Id<"_storage"> | null>(null);
@@ -94,7 +103,8 @@ export function TransactionsView() {
   const canAddTransactions = isAdmin || isDeputy;
   const allTransactions = useQuery(api.transactions.list, {
     type: activeTab === "all" ? undefined : activeTab,
-    ...(selectedYear !== "all" ? { year: Number(selectedYear) } : {}),
+    // Při hledání se prohledávají všechny roky
+    ...(selectedYear !== "all" && !isSearching ? { year: Number(selectedYear) } : {}),
   });
   const yearlyStats = useQuery(api.transactions.getYearlyStats);
   const incomeCategories = useQuery(api.categories.list, { type: "income" });
@@ -117,8 +127,16 @@ export function TransactionsView() {
 
   // Filtrovat transakce (seřazeny podle data sestupně z databáze)
   const transactions = allTransactions?.filter((t) => {
+    if (isSearching) {
+      const haystack = normalizeText(`${t.description} ${t.category} ${t.paidBy ?? ""}`);
+      const amountText = String(t.amount);
+      const digits = searchQuery.replace(/\s/g, "");
+      if (!haystack.includes(searchQuery) && !(digits && /^\d+$/.test(digits) && amountText.includes(digits))) {
+        return false;
+      }
+    }
     const year = new Date(t.date).getFullYear().toString();
-    const matchesYear = selectedYear === "all" || year === selectedYear;
+    const matchesYear = selectedYear === "all" || isSearching || year === selectedYear;
     const matchesCategory = selectedCategory === "all" || t.category === selectedCategory;
     const matchesPayment = selectedPaymentMethod === "all" || t.paymentMethod === selectedPaymentMethod;
     return matchesYear && matchesCategory && matchesPayment;
@@ -131,6 +149,7 @@ export function TransactionsView() {
     date: new Date().toISOString().split("T")[0],
     paymentMethod: "cash" as "cash" | "bank",
     reimbursed: false,
+    paidBy: "",
   });
 
   const formatCurrency = (amount: number) => {
@@ -183,6 +202,7 @@ export function TransactionsView() {
           ...(transactionType === "expense" ? { reimbursed: formData.reimbursed } : {}),
           ...(uploadedStorageId ? { receiptStorageId: uploadedStorageId } : {}),
           ...(removeReceipt ? { removeReceipt: true } : {}),
+          paidBy: transactionType === "expense" ? formData.paidBy : "",
         });
       } else {
         await createTransaction({
@@ -193,6 +213,7 @@ export function TransactionsView() {
           date: new Date(formData.date).getTime(),
           paymentMethod: formData.paymentMethod,
           ...(uploadedStorageId ? { receiptStorageId: uploadedStorageId } : {}),
+          ...(transactionType === "expense" && formData.paidBy.trim() ? { paidBy: formData.paidBy.trim() } : {}),
         });
       }
       setFormData({
@@ -202,6 +223,7 @@ export function TransactionsView() {
         date: new Date().toISOString().split("T")[0],
         paymentMethod: "cash",
         reimbursed: false,
+        paidBy: "",
       });
       setReceiptFile(null);
       setReceiptPreview(null);
@@ -235,6 +257,7 @@ export function TransactionsView() {
       date: new Date().toISOString().split("T")[0],
       paymentMethod: "cash",
       reimbursed: false,
+      paidBy: "",
     });
     setReceiptFile(null);
     setReceiptPreview(null);
@@ -253,6 +276,7 @@ export function TransactionsView() {
       date: new Date(transaction.date).toISOString().split("T")[0],
       paymentMethod: transaction.paymentMethod || "cash",
       reimbursed: transaction.reimbursed ?? false,
+      paidBy: transaction.paidBy ?? "",
     });
     setReceiptFile(null);
     setReceiptPreview(null);
@@ -482,6 +506,28 @@ export function TransactionsView() {
         </TabsList>
       </Tabs>
 
+      {/* Hledání – v popisu, kategorii, jménu i částce, napříč všemi roky */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <Input
+          type="search"
+          placeholder="Hledat (popis, kategorie, částka)"
+          className="pl-9 pr-9"
+          value={searchText}
+          onChange={(e) => setSearchText(e.target.value)}
+        />
+        {searchText && (
+          <button
+            type="button"
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            onClick={() => setSearchText("")}
+            aria-label="Zrušit hledání"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+
       {/* Filtry rok a kategorie */}
       <div className="flex gap-2 flex-wrap">
         <Select value={selectedYear} onValueChange={setSelectedYear}>
@@ -556,6 +602,9 @@ export function TransactionsView() {
                     {balance >= 0 ? "+" : ""}{formatCurrency(balance)}
                   </span>
                   <div className="flex gap-4 items-center">
+                    {isSearching && (
+                      <span className="text-muted-foreground">nalezeno {transactions.length}</span>
+                    )}
                     <span className="text-income font-medium">+{formatCurrency(inc)}</span>
                     <span className="text-expense font-medium">-{formatCurrency(exp)}</span>
                   </div>
@@ -604,6 +653,14 @@ export function TransactionsView() {
                           <span className="flex items-center gap-0.5">
                             <Banknote className="w-3 h-3" /> Hotovost
                           </span>
+                        )}
+                        {transaction.paidBy && (
+                          <>
+                            <span className="mx-1">•</span>
+                            <span className="flex items-center gap-0.5">
+                              <User className="w-3 h-3" /> Platil: {transaction.paidBy}
+                            </span>
+                          </>
                         )}
                         {transaction.type === "expense" && transaction.reimbursed && (
                           <>
@@ -865,6 +922,21 @@ export function TransactionsView() {
                 </Button>
               </div>
             </div>
+
+            {transactionType === "expense" && (
+              <div className="space-y-2">
+                <Label htmlFor="paidBy">Zaplatil ze svého (nepovinné)</Label>
+                <Input
+                  id="paidBy"
+                  type="text"
+                  placeholder="Jméno – výdaj se objeví v „K proplacení“"
+                  value={formData.paidBy}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, paidBy: e.target.value }))
+                  }
+                />
+              </div>
+            )}
 
             {transactionType === "expense" && (
               <div className="flex items-center gap-3 py-1">
