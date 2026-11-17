@@ -11,6 +11,7 @@ import { ValnaHromadaPdfButton } from "@/components/valnahromada-pdf-button";
 import { ExcelDownloadButton } from "@/components/excel-download-button";
 
 import { cn } from "@/lib/utils";
+import { BudgetReportCard } from "@/components/budget-report-card";
 
 const CURRENT_YEAR = new Date().getFullYear();
 const TOP_CATEGORIES = 5;
@@ -310,6 +311,8 @@ export function ReportsView() {
           </TabsContent>
         </Tabs>
       </div>
+
+      <BudgetReportCard year={year} />
 
       {/* Po letech – graf a tabulka */}
       <Card>

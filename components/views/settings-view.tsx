@@ -39,6 +39,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { BudgetSettingsCard } from "@/components/settings/budget-settings-card";
+import { AuditLogCard } from "@/components/settings/audit-log-card";
 
 export function SettingsView() {
   const [activeTab, setActiveTab] = useState<"income" | "expense">("income");
@@ -61,6 +63,21 @@ export function SettingsView() {
   const createCategory = useMutation(api.categories.create);
   const removeCategory = useMutation(api.categories.remove);
   const renameCategory = useAction(api.categories.rename);
+  const setCategoryDescription = useMutation(api.categories.setDescription);
+
+  // Popis kategorie – nepovinný, pomáhá AI při čtení účtenek a hlasu
+  const handleEditDescription = async (id: Id<"categories">, current?: string) => {
+    const value = window.prompt(
+      "Popis kategorie (nepovinný) – co do ní patří. Pomáhá AI vybrat správnou kategorii.",
+      current ?? ""
+    );
+    if (value === null) return;
+    try {
+      await setCategoryDescription({ id, description: value });
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Chyba při ukládání popisu");
+    }
+  };
   const loadDefaults = useMutation(api.categories.loadDefaults);
   const setUserRole = useMutation(api.userProfiles.setUserRole);
   const approveUser = useMutation(api.userProfiles.approveUser);
@@ -337,7 +354,19 @@ export function SettingsView() {
                     </>
                   ) : (
                     <>
-                      <span className="font-medium flex-1">{category.name}</span>
+                      <div className="flex-1 min-w-0">
+                        <span className="font-medium">{category.name}</span>
+                        <button
+                          type="button"
+                          className={cn(
+                            "block text-left text-xs mt-0.5 hover:underline",
+                            category.description ? "text-muted-foreground" : "text-muted-foreground/60 italic"
+                          )}
+                          onClick={() => handleEditDescription(category._id, category.description)}
+                        >
+                          {category.description || "Přidat popis…"}
+                        </button>
+                      </div>
                       <Button
                         variant="ghost"
                         size="icon"
@@ -366,6 +395,8 @@ export function SettingsView() {
           </div>
         </CardContent>
       </Card>
+
+      <BudgetSettingsCard />
 
       {/* Správa uživatelů a rolí */}
       <Card>
@@ -653,6 +684,8 @@ export function SettingsView() {
           </Button>
         </CardContent>
       </Card>
+
+      <AuditLogCard />
     </div>
   );
 }
