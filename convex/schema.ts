@@ -22,6 +22,8 @@ export default defineSchema({
     category: v.string(),
     paymentMethod: v.optional(v.union(v.literal("cash"), v.literal("bank"))),
     reimbursed: v.optional(v.boolean()),
+    // Kdo výdaj zaplatil ze svého a čeká na proplacení
+    paidBy: v.optional(v.string()),
     date: v.number(),
     receiptStorageId: v.optional(v.id("_storage")),
     createdBy: v.id("users"),
@@ -79,6 +81,18 @@ export default defineSchema({
     expiresAt: v.number(),
     attempts: v.optional(v.number()),
   }).index("by_email", ["email"]),
+
+  // Inventury hotovosti v pokladně
+  cashCounts: defineTable({
+    countedAt: v.number(),
+    counted: v.number(),
+    expected: v.number(),
+    difference: v.number(),
+    // Počty kusů podle nominálu, např. { "2000": 5, "1000": 8 }
+    denominations: v.optional(v.record(v.string(), v.number())),
+    transactionId: v.optional(v.id("transactions")),
+    createdBy: v.id("users"),
+  }).index("by_countedAt", ["countedAt"]),
 
   // Nastavení aplikace
   appSettings: defineTable({

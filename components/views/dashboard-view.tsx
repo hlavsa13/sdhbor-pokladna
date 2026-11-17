@@ -1,6 +1,7 @@
 "use client";
 
-import { useQuery } from "convex/react";
+import { useState } from "react";
+import { useMutation, useQuery } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { api } from "@/convex/_generated/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,8 +18,11 @@ import {
   Calendar,
   Banknote,
   Building2,
-  Scale
+  Scale,
+  ReceiptText,
+  Check,
 } from "lucide-react";
+import { CashCountDialog } from "@/components/cash-count-dialog";
 import { cn } from "@/lib/utils";
 import type { ComponentType } from "react";
 
@@ -28,6 +32,12 @@ export function DashboardView() {
   const stats = useQuery(api.transactions.getStats);
   const memberStats = useQuery(api.members.getStats);
   const recentTransactions = useQuery(api.transactions.list, { limit: 5 });
+  const toReimburse = useQuery(api.transactions.listToReimburse);
+  const markReimbursed = useMutation(api.transactions.markReimbursed);
+  const [isCashCountOpen, setIsCashCountOpen] = useState(false);
+  const role = currentUser?.profile?.role;
+  const canManageCash = role === "admin" || role === "deputy";
+  const toReimburseTotal = (toReimburse ?? []).reduce((sum, t) => sum + t.amount, 0);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("cs-CZ", {
@@ -103,6 +113,66 @@ export function DashboardView() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Inventura hotovosti */}
+      {canManageCash && (
+        <div className="-mt-3 flex justify-end">
+          <Button variant="outline" size="sm" onClick={() => setIsCashCountOpen(true)}>
+            <Banknote className="w-4 h-4 mr-1.5" />
+            Inventura pokladny
+          </Button>
+        </div>
+      )}
+      <CashCountDialog
+        open={isCashCountOpen}
+        onOpenChange={setIsCashCountOpen}
+        expected={stats?.cashBalance}
+      />
+
+      {/* K proplacení – výdaje zaplacené ze svého */}
+      {toReimburse && toReimburse.length > 0 && (
+        <Card className="border-amber-500/40 bg-amber-500/10">
+          <CardContent className="pt-4 space-y-3">
+            <div className="flex items-baseline justify-between text-amber-700 dark:text-amber-400">
+              <p className="font-semibold flex items-center gap-2">
+                <ReceiptText className="w-4 h-4" />
+                K proplacení
+              </p>
+              <p className="text-lg font-bold tabular-nums">{formatCurrency(toReimburseTotal)}</p>
+            </div>
+            <div className="space-y-2">
+              {toReimburse.map((t) => (
+                <div key={t._id} className="flex items-center justify-between gap-3 text-sm">
+                  <div className="min-w-0">
+                    <p className="font-medium truncate">
+                      {t.paidBy} – {t.description}
+                    </p>
+                    <p className="text-xs text-muted-foreground">{formatDate(t.date)}</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="font-semibold tabular-nums">{formatCurrency(t.amount)}</span>
+                    {canManageCash && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2 bg-background"
+                        onClick={() => {
+                          if (confirm(`Označit výdaj „${t.description}“ (${formatCurrency(t.amount)} Kč) jako proplacený ${t.paidBy}?`)) {
+                            markReimbursed({ id: t._id }).catch((e) => console.log("Proplacení selhalo:", e));
+                          }
+                        }}
+                      >
+                        <Check className="w-3.5 h-3.5 mr-1" />
+                        Proplatit
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Na široké stránce Členové a Poslední pohyby vedle sebe */}
       <div className="grid gap-6 md:grid-cols-[1fr_1.6fr] md:items-start">
