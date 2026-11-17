@@ -1,7 +1,22 @@
 import { v } from "convex/values"
-import { mutation, query, internalMutation } from "./_generated/server"
+import { mutation, query, internalMutation, type QueryCtx } from "./_generated/server"
+import type { Id } from "./_generated/dataModel"
 import { getAuthUserId } from "@convex-dev/auth/server"
 import { getApprovedUserId } from "./access"
+
+// Osobní údaje (e-mail, telefon, datum narození) vidí jen hospodář, zástupce a tajemník.
+// Ostatní schválení uživatelé vidí jméno, typ člena a stav příspěvků.
+async function canSeePersonalData(ctx: QueryCtx, userId: Id<"users">) {
+  const profile = await ctx.db
+    .query("userProfiles")
+    .withIndex("by_userId", (q) => q.eq("userId", userId))
+    .first()
+  return !!profile && ["admin", "deputy", "secretary"].includes(profile.role)
+}
+
+function withoutPersonalData<T extends { email?: string; phone?: string; birthDate?: number }>(member: T): T {
+  return { ...member, email: undefined, phone: undefined, birthDate: undefined } as T
+}
 
 export const list = query({
   args: {
@@ -42,6 +57,9 @@ export const list = query({
       return a.firstName.localeCompare(b.firstName, "cs")
     })
 
+    if (!(await canSeePersonalData(ctx, userId))) {
+      return membersWithFees.map(withoutPersonalData)
+    }
     return membersWithFees
   },
 })
@@ -63,10 +81,11 @@ export const get = query({
       .withIndex("by_memberId", (q) => q.eq("memberId", args.id))
       .collect()
     
-    return {
+    const result = {
       ...member,
       fees: fees.sort((a, b) => b.year - a.year),
     }
+    return (await canSeePersonalData(ctx, userId)) ? result : withoutPersonalData(result)
   },
 })
 

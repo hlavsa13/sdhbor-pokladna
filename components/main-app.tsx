@@ -29,8 +29,41 @@ export const navItems = [
   { id: "settings" as const, label: "Nastavení", icon: Settings },
 ];
 
+// Stránka se pamatuje v adrese (#finance…) – obnovení stránky zůstane na místě
+// a tlačítko Zpět v prohlížeči/telefonu přepíná mezi stránkami aplikace.
+const VIEW_HASHES: Record<ViewType, string> = {
+  dashboard: "prehled",
+  transactions: "finance",
+  reports: "vykazy",
+  members: "clenove",
+  settings: "nastaveni",
+};
+
+function viewFromHash(): ViewType {
+  const hash = window.location.hash.slice(1);
+  return (Object.keys(VIEW_HASHES) as ViewType[]).find((v) => VIEW_HASHES[v] === hash) ?? "dashboard";
+}
+
 export function MainApp() {
-  const [activeView, setActiveView] = useState<ViewType>("dashboard");
+  const [activeView, setActiveViewState] = useState<ViewType>("dashboard");
+
+  useEffect(() => {
+    setActiveViewState(viewFromHash());
+    const onHashChange = () => {
+      setActiveViewState(viewFromHash());
+      window.scrollTo(0, 0);
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
+  const setActiveView = (view: ViewType) => {
+    if (window.location.hash.slice(1) !== VIEW_HASHES[view]) {
+      window.location.hash = VIEW_HASHES[view]; // vyvolá hashchange → přepnutí
+    } else {
+      setActiveViewState(view);
+    }
+  };
   const currentUser = useQuery(api.userProfiles.getCurrentUser);
 
   // Pokud uživatel nemá profil, zobrazit setup

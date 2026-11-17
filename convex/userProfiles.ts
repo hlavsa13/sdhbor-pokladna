@@ -234,7 +234,7 @@ export const rejectUser = mutation({
 })
 
 // Zkusí udělat aktuálního uživatele adminem pokud:
-// (a) v systému vůbec žádný schválený admin není, NEBO
+// (a) jde o úplně prvního uživatele aplikace (žádný jiný profil neexistuje), NEBO
 // (b) existuje admin profil se stejným e-mailem (migrace ze starého účtu)
 // E-mail čteme z authAccounts (providerAccountId pro password provider) – spolehlivější než users.email
 export const claimAdminIfNoneExists = mutation({
@@ -300,9 +300,14 @@ export const claimAdminIfNoneExists = mutation({
       }
       console.log("claimAdminIfNoneExists: sameEmailAdminExists =", sameEmailAdminExists)
 
-      // Povýšíme pouze pokud: žádný admin neexistuje NEBO stejný e-mail
-      if (approvedAdmins.length > 0 && !sameEmailAdminExists) {
-        console.log("claimAdminIfNoneExists: podmínka nesplněna – admin existuje a e-mail nesedí")
+      // Povýšíme pouze pokud: jde o úplně prvního uživatele aplikace (žádný jiný profil),
+      // NEBO má stejný e-mail jako stávající hospodář (migrace účtu).
+      // Dříve stačilo, že žádný hospodář neexistuje – po smazání jeho profilu by se
+      // hospodářem stal kdokoli, kdo se zaregistruje.
+      const otherProfiles = allProfiles.filter((p) => p.userId !== userId)
+      const isFirstUser = approvedAdmins.length === 0 && otherProfiles.length === 0
+      if (!isFirstUser && !sameEmailAdminExists) {
+        console.log("claimAdminIfNoneExists: podmínka nesplněna – nejde o prvního uživatele ani migraci")
         return false
       }
 
