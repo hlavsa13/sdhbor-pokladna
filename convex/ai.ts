@@ -66,7 +66,7 @@ const buildTool = (categoryNames: string[]) => ({
 })
 
 const normalize = (s: string) =>
-  s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim()
+  s.toLowerCase().normalize("NFD").replace(/\p{M}/gu, "").replace(/\s+/g, " ").trim()
 
 function validate(raw: Record<string, unknown>, categories: { name: string; type: string }[]): AiTransaction {
   const out: AiTransaction = {}
