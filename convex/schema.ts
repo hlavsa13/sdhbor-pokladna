@@ -69,6 +69,8 @@ export default defineSchema({
   categories: defineTable({
     name: v.string(),
     type: v.union(v.literal("income"), v.literal("expense")),
+    // Nepovinný popis – pomáhá AI vybrat správnou kategorii
+    description: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_type", ["type"])
@@ -93,6 +95,28 @@ export default defineSchema({
     transactionId: v.optional(v.id("transactions")),
     createdBy: v.id("users"),
   }).index("by_countedAt", ["countedAt"]),
+
+  // Rozpočet: plánovaná částka pro kategorii v daném roce
+  budgets: defineTable({
+    year: v.number(),
+    category: v.string(),
+    type: v.union(v.literal("income"), v.literal("expense")),
+    amount: v.number(),
+    updatedAt: v.number(),
+  }).index("by_year", ["year"]),
+
+  // Historie změn transakcí (kdo, kdy, co)
+  auditLog: defineTable({
+    at: v.number(),
+    userId: v.id("users"),
+    userName: v.string(),
+    action: v.union(v.literal("create"), v.literal("update"), v.literal("delete"), v.literal("import")),
+    entityId: v.optional(v.string()),
+    summary: v.string(),
+    // Kopie smazané transakce, aby šla dohledat
+    snapshot: v.optional(v.any()),
+    restored: v.optional(v.boolean()),
+  }).index("by_at", ["at"]),
 
   // Nastavení aplikace
   appSettings: defineTable({

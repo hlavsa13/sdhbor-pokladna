@@ -3,6 +3,7 @@ import { mutation, query, internalMutation, internalQuery } from "./_generated/s
 import { getAuthUserId } from "@convex-dev/auth/server"
 import { getApprovedUserId } from "./access"
 import type { Id } from "./_generated/dataModel"
+import { describeChanges, describeTx, logAudit } from "./audit"
 
 
 export const internalDeleteAll = internalMutation({
@@ -357,6 +358,8 @@ export const create = mutation({
       createdBy: userId,
       createdAt: Date.now(),
     })
+    const created = await ctx.db.get(id)
+    if (created) await logAudit(ctx, userId, { action: "create", entityId: id, summary: describeTx(created) })
     return id
   },
 })
@@ -397,6 +400,8 @@ export const update = mutation({
     }
     
     const { id, removeReceipt, paidBy, ...updates } = args
+    const before = await ctx.db.get(id)
+    if (!before) throw new Error("Transakce neexistuje")
 
     if (paidBy !== undefined) {
       await ctx.db.patch(id, { paidBy: paidBy.trim() || undefined })
@@ -416,6 +421,9 @@ export const update = mutation({
     )
 
     await ctx.db.patch(id, filteredUpdates)
+
+    const after = await ctx.db.get(id)
+    if (after) await logAudit(ctx, userId, { action: "update", entityId: id, summary: describeChanges(before, after) })
   },
 })
 
@@ -443,7 +451,12 @@ export const remove = mutation({
       }
     }
     
+    const existing = await ctx.db.get(args.id)
     await ctx.db.delete(args.id)
+    if (existing) {
+      // Kopie smazané transakce zůstane v historii, aby šla dohledat
+      await logAudit(ctx, userId, { action: "delete", entityId: args.id, summary: describeTx(existing), snapshot: existing })
+    }
   },
 })
 
@@ -533,7 +546,10 @@ export const importTransactions = mutation({
       })
       imported++
     }
-    
+
+    if (imported > 0) {
+      await logAudit(ctx, userId, { action: "import", summary: `Import z Excelu: ${imported} transakcí` })
+    }
     return { imported }
   },
 })
@@ -565,9 +581,14 @@ export const markReimbursed = mutation({
       .withIndex("by_userId", (q) => q.eq("userId", userId))
       .first()
     if (!profile || (profile.role !== "admin" && profile.role !== "deputy")) {
-      throw new Error("Nemáte oprávnění preplácet výdaje")
+      throw new Error("Nemáte oprávnění proplácet výdaje")
     }
+    const before = await ctx.db.get(args.id)
     await ctx.db.patch(args.id, { reimbursed: true })
+    const after = await ctx.db.get(args.id)
+    if (before && after) {
+      await logAudit(ctx, userId, { action: "update", entityId: args.id, summary: describeChanges(before, after) })
+    }
   },
 })
 
@@ -634,6 +655,10 @@ export const recordCashCount = mutation({
         createdBy: userId,
         createdAt: Date.now(),
       })
+      const created = await ctx.db.get(transactionId)
+      if (created) {
+        await logAudit(ctx, userId, { action: "create", entityId: transactionId, summary: `Inventura: ${describeTx(created)}` })
+      }
     }
 
     await ctx.db.insert("cashCounts", {

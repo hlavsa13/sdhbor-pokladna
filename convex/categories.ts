@@ -87,6 +87,27 @@ export const create = mutation({
   },
 });
 
+// Popis kategorie (nepovinný) – pomáhá AI vybrat správnou kategorii
+export const setDescription = mutation({
+  args: {
+    id: v.id("categories"),
+    description: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Unauthorized");
+    const profile = await ctx.db
+      .query("userProfiles")
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
+      .first();
+    if (!profile || profile.role !== "admin") {
+      throw new Error("Pouze admin může upravovat kategorie");
+    }
+    const description = args.description.trim().slice(0, 300);
+    await ctx.db.patch(args.id, { description: description || undefined });
+  },
+});
+
 // Interní: validace + přejmenování kategorie, vrátí starý název
 export const internalRenameCategoryDoc = internalMutation({
   args: {
@@ -127,6 +148,16 @@ export const internalRenameCategoryDoc = internalMutation({
 
     const oldName = category.name;
     await ctx.db.patch(args.id, { name: newName });
+
+    // Rozpočty jsou vázané na název kategorie – přejmenovat i v nich
+    if (oldName !== newName) {
+      const budgets = await ctx.db.query("budgets").collect();
+      for (const b of budgets) {
+        if (b.category === oldName && b.type === category.type) {
+          await ctx.db.patch(b._id, { category: newName });
+        }
+      }
+    }
     return oldName;
   },
 });

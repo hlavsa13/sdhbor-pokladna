@@ -29,7 +29,7 @@ export const internalCategories = internalQuery({
   args: {},
   handler: async (ctx) => {
     const all = await ctx.db.query("categories").collect()
-    return all.map((c) => ({ name: c.name, type: c.type }))
+    return all.map((c) => ({ name: c.name, type: c.type, description: c.description }))
   },
 })
 
@@ -118,8 +118,12 @@ export const parseTransaction = action({
 
     const categories = await ctx.runQuery(internal.ai.internalCategories, {})
     const today = new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Prague" })
+    // Kategorie i s popisem, pokud ho hospodář vyplnil – AI pak líp trefí správnou
     const categoryList = (t: string) =>
-      categories.filter((c) => c.type === t).map((c) => c.name).join(", ") || "(žádné)"
+      categories
+        .filter((c) => c.type === t)
+        .map((c) => (c.description ? `${c.name} (${c.description})` : c.name))
+        .join(", ") || "(žádné)"
 
     const system = [
       "Jsi pomocník hospodáře sboru dobrovolných hasičů SDH Bor. Z podkladu rozpoznej jednu transakci a zapiš ji nástrojem zapsat_transakci.",
