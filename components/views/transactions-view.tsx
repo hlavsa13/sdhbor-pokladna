@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { useQuery, useMutation } from "convex/react";
+import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -43,6 +43,7 @@ import {
   Camera,
   Receipt,
   Mic,
+  ScanLine,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -50,6 +51,7 @@ import { ImportExcelDialog } from "@/components/import-excel-dialog";
 import { ReceiptCropper } from "@/components/receipt-cropper";
 import { VoiceTransactionDialog, useSpeechSupported } from "@/components/voice-transaction-dialog";
 import { parseVoiceTransaction } from "@/lib/voice-transaction";
+import { imageToBase64Jpeg } from "@/lib/image-to-base64";
 
 
 
@@ -72,7 +74,15 @@ export function TransactionsView() {
   const [isCropOpen, setIsCropOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isVoiceOpen, setIsVoiceOpen] = useState(false);
+  const [voiceProcessing, setVoiceProcessing] = useState(false);
   const speechSupported = useSpeechSupported();
+  // Načtení z účtenky
+  const [isScanOpen, setIsScanOpen] = useState(false);
+  const [scanBusy, setScanBusy] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [scanFile, setScanFile] = useState<{ file: File; preview: string } | null>(null);
+  const cropModeRef = useRef<"attach" | "scan">("attach");
+  const scanInputRef = useRef<HTMLInputElement>(null);
 
   const isAdmin = useQuery(api.userProfiles.isAdmin);
   const isDeputy = useQuery(api.userProfiles.isDeputy);
@@ -89,6 +99,7 @@ export function TransactionsView() {
   const updateTransaction = useMutation(api.transactions.update);
   const removeTransaction = useMutation(api.transactions.remove);
   const generateUploadUrl = useMutation(api.media.generateUploadUrl);
+  const parseWithAi = useAction(api.ai.parseTransaction);
 
   // Získat unikátní roky z transakcí
   const availableYears = allTransactions
@@ -247,24 +258,111 @@ export function TransactionsView() {
     setIsDialogOpen(true);
   };
 
-  // Hlasové zadání: rozpoznanou větu převést na předvyplněný formulář
-  const handleVoiceResult = (text: string) => {
+  type Prefill = {
+    type?: "income" | "expense";
+    amount?: number;
+    description?: string;
+    category?: string;
+    paymentMethod?: "cash" | "bank";
+    date?: string;
+  };
+
+  // Otevře formulář nové transakce předvyplněný rozpoznanými údaji
+  const openPrefilledDialog = (p: Prefill, receipt?: { file: File; preview: string }) => {
+    openDialog(p.type ?? "expense");
+    setFormData((prev) => ({
+      ...prev,
+      amount: p.amount !== undefined ? String(p.amount) : "",
+      description: p.description ?? "",
+      category: p.category ?? "",
+      date: p.date ?? prev.date,
+      paymentMethod: p.paymentMethod ?? prev.paymentMethod,
+    }));
+    if (receipt) {
+      setReceiptFile(receipt.file);
+      setReceiptPreview(receipt.preview);
+    }
+  };
+
+  // Hlasové zadání: větu rozebere AI, při chybě se použijí místní pravidla
+  const handleVoiceResult = async (text: string) => {
     const allCategories = [
       ...(incomeCategories ?? []).map((c) => ({ name: c.name, type: "income" as const })),
       ...(expenseCategories ?? []).map((c) => ({ name: c.name, type: "expense" as const })),
     ];
-    const parsed = parseVoiceTransaction(text, allCategories);
-    console.log("Hlasové zadání:", text, parsed);
+    const local = parseVoiceTransaction(text, allCategories);
+    let result: Prefill = local;
+
+    setVoiceProcessing(true);
+    try {
+      const ai = await parseWithAi({ text });
+      if (ai.ok) {
+        // AI má přednost, chybějící údaje doplní místní rozbor
+        result = {
+          type: ai.data.type ?? local.type,
+          amount: ai.data.amount ?? local.amount,
+          description: ai.data.description ?? local.description,
+          category: ai.data.category ?? local.category,
+          paymentMethod: ai.data.paymentMethod ?? local.paymentMethod,
+          date: ai.data.date ?? local.date,
+        };
+      } else {
+        console.log("AI nedostupná, použita místní pravidla:", ai.error);
+      }
+    } catch (e) {
+      console.log("AI chyba, použita místní pravidla:", e);
+    } finally {
+      setVoiceProcessing(false);
+    }
+
+    console.log("Hlasové zadání:", text, result);
     setIsVoiceOpen(false);
-    openDialog(parsed.type ?? "expense");
-    setFormData((prev) => ({
-      ...prev,
-      amount: parsed.amount !== undefined ? String(parsed.amount) : "",
-      description: parsed.description,
-      category: parsed.category ?? "",
-      date: parsed.date ?? prev.date,
-      paymentMethod: parsed.paymentMethod ?? prev.paymentMethod,
-    }));
+    openPrefilledDialog(result);
+  };
+
+  // Načtení z účtenky: vybrat fotku → ořez → AI → předvyplněný formulář s přiloženou účtenkou
+  const openScan = () => {
+    setScanError(null);
+    setScanFile(null);
+    setScanBusy(false);
+    setIsScanOpen(true);
+  };
+
+  const pickScanPhoto = (useCamera: boolean) => {
+    const input = scanInputRef.current;
+    if (!input) return;
+    if (useCamera) input.setAttribute("capture", "environment");
+    else input.removeAttribute("capture");
+    input.click();
+  };
+
+  const handleScanFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files?.[0]) return;
+    cropModeRef.current = "scan";
+    setIsScanOpen(false); // během ořezu zavřít, po ořezu se znovu otevře
+    handleReceiptChange(e);
+  };
+
+  const runScan = async (file: File, preview: string) => {
+    setScanFile({ file, preview });
+    setScanError(null);
+    setScanBusy(true);
+    setIsScanOpen(true);
+    try {
+      const imageBase64 = await imageToBase64Jpeg(file);
+      const ai = await parseWithAi({ imageBase64, imageMediaType: "image/jpeg" });
+      if (!ai.ok) {
+        setScanError(ai.error);
+        return;
+      }
+      setIsScanOpen(false);
+      openPrefilledDialog({ type: "expense", ...ai.data }, { file, preview });
+    } catch (e) {
+      console.log("Čtení účtenky selhalo:", e);
+      setScanError("Účtenku se nepodařilo přečíst.");
+    } finally {
+      setScanBusy(false);
+    }
   };
 
   const categories = transactionType === "income" ? incomeCategories : expenseCategories;
@@ -286,6 +384,13 @@ export function TransactionsView() {
 
   const handleCropConfirm = (blob: Blob, previewUrl: string) => {
     const croppedFile = new File([blob], "uctenka.jpg", { type: "image/jpeg" });
+    if (cropModeRef.current === "scan") {
+      cropModeRef.current = "attach";
+      setIsCropOpen(false);
+      setCropSrc(null);
+      runScan(croppedFile, previewUrl);
+      return;
+    }
     setReceiptFile(croppedFile);
     setReceiptPreview(previewUrl);
     setRemoveReceipt(false);
@@ -295,6 +400,7 @@ export function TransactionsView() {
   };
 
   const handleCropCancel = () => {
+    cropModeRef.current = "attach";
     setIsCropOpen(false);
     setCropSrc(null);
   };
@@ -302,10 +408,20 @@ export function TransactionsView() {
   return (
     <div className="p-4 space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <h1 className="text-xl font-bold">Finance</h1>
         {canAddTransactions && (
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap justify-end">
+            <Button
+              size="sm"
+              variant="outline"
+              className="px-2.5"
+              onClick={openScan}
+              aria-label="Načíst z účtenky"
+              title="Načíst z účtenky"
+            >
+              <ScanLine className="w-4 h-4" />
+            </Button>
             {speechSupported && (
               <Button
                 size="sm"
@@ -578,7 +694,70 @@ export function TransactionsView() {
         open={isVoiceOpen}
         onOpenChange={setIsVoiceOpen}
         onResult={handleVoiceResult}
+        processing={voiceProcessing}
       />
+
+      {/* Načtení transakce z účtenky */}
+      <Dialog open={isScanOpen} onOpenChange={(open) => !scanBusy && setIsScanOpen(open)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ScanLine className="w-5 h-5" />
+              Načíst z účtenky
+            </DialogTitle>
+          </DialogHeader>
+
+          {scanFile && (
+            <img
+              src={scanFile.preview}
+              alt="Účtenka"
+              className="w-full max-h-48 object-contain rounded-lg border"
+            />
+          )}
+
+          {scanBusy ? (
+            <p className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
+              <Loader2 className="w-4 h-4 animate-spin" /> Čtu účtenku…
+            </p>
+          ) : (
+            <>
+              {scanError && (
+                <p className="text-sm text-destructive text-center">{scanError}</p>
+              )}
+              <div className="grid grid-cols-2 gap-2">
+                <Button type="button" variant="outline" className="flex items-center gap-2" onClick={() => pickScanPhoto(true)}>
+                  <Camera className="w-4 h-4" />
+                  Vyfotit
+                </Button>
+                <Button type="button" variant="outline" className="flex items-center gap-2" onClick={() => pickScanPhoto(false)}>
+                  <Receipt className="w-4 h-4" />
+                  Galerie
+                </Button>
+              </div>
+              {scanError && scanFile && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="w-full"
+                  onClick={() => {
+                    setIsScanOpen(false);
+                    openPrefilledDialog({ type: "expense" }, scanFile);
+                  }}
+                >
+                  Zadat ručně s touto účtenkou
+                </Button>
+              )}
+            </>
+          )}
+          <input
+            ref={scanInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleScanFileChange}
+          />
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="sm:max-w-md">

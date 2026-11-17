@@ -36,9 +36,11 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   /** Zavolá se s rozpoznaným textem po dokončení věty */
   onResult: (text: string) => void;
+  /** Probíhá zpracování rozpoznané věty (AI) */
+  processing?: boolean;
 };
 
-export function VoiceTransactionDialog({ open, onOpenChange, onResult }: Props) {
+export function VoiceTransactionDialog({ open, onOpenChange, onResult, processing = false }: Props) {
   const [listening, setListening] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -128,6 +130,7 @@ export function VoiceTransactionDialog({ open, onOpenChange, onResult }: Props) 
           <button
             type="button"
             onClick={() => (listening ? stop() : start())}
+            disabled={processing}
             className={cn(
               "w-20 h-20 rounded-full flex items-center justify-center transition-colors",
               listening
@@ -140,7 +143,11 @@ export function VoiceTransactionDialog({ open, onOpenChange, onResult }: Props) 
           </button>
 
           <p className="text-sm text-muted-foreground flex items-center gap-2 min-h-5">
-            {listening ? (
+            {processing ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" /> Zpracovávám…
+              </>
+            ) : listening ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" /> Poslouchám…
               </>
