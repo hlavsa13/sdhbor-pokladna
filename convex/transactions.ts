@@ -15,20 +15,33 @@ export const internalDeleteAll = internalMutation({
   },
 })
 
+const DAY_MS = 24 * 60 * 60 * 1000
+
 export const list = query({
   args: {
     type: v.optional(v.union(v.literal("income"), v.literal("expense"))),
+    // Bez limitu se vrátí všechny transakce (dříve pevně max. 1000 – nejstarší chyběly)
     limit: v.optional(v.number()),
+    // Jen transakce daného roku; rozsah je o den širší kvůli časovým pásmům,
+    // přesné rozdělení podle roku dělá klient
+    year: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const userId = await getApprovedUserId(ctx)
     if (!userId) return []
-    
-    let allTransactions = await ctx.db
-      .query("transactions")
-      .withIndex("by_date")
-      .order("desc")
-      .take(args.limit ?? 1000)
+
+    const year = args.year
+    const query =
+      year !== undefined
+        ? ctx.db
+            .query("transactions")
+            .withIndex("by_date", (q) =>
+              q.gte("date", Date.UTC(year, 0, 1) - DAY_MS).lt("date", Date.UTC(year + 1, 0, 1) + DAY_MS)
+            )
+            .order("desc")
+        : ctx.db.query("transactions").withIndex("by_date").order("desc")
+
+    let allTransactions = args.limit !== undefined ? await query.take(args.limit) : await query.collect()
 
     if (args.type) {
       allTransactions = allTransactions.filter((t) => t.type === args.type)

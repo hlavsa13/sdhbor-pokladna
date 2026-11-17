@@ -55,6 +55,8 @@ import { imageToBase64Jpeg } from "@/lib/image-to-base64";
 
 
 
+const CURRENT_YEAR = new Date().getFullYear();
+
 export function TransactionsView() {
   const [activeTab, setActiveTab] = useState<"all" | "income" | "expense">("all");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -62,7 +64,8 @@ export function TransactionsView() {
   const [transactionType, setTransactionType] = useState<"income" | "expense">("income");
   const [isLoading, setIsLoading] = useState(false);
   const [editingId, setEditingId] = useState<Id<"transactions"> | null>(null);
-  const [selectedYear, setSelectedYear] = useState<string>("all");
+  // Výchozí je aktuální rok – seznam je kratší a souhrn ukazuje letošek
+  const [selectedYear, setSelectedYear] = useState<string>(String(CURRENT_YEAR));
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>("all");
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
@@ -91,8 +94,9 @@ export function TransactionsView() {
   const canAddTransactions = isAdmin || isDeputy;
   const allTransactions = useQuery(api.transactions.list, {
     type: activeTab === "all" ? undefined : activeTab,
-    limit: 1000,
+    ...(selectedYear !== "all" ? { year: Number(selectedYear) } : {}),
   });
+  const yearlyStats = useQuery(api.transactions.getYearlyStats);
   const incomeCategories = useQuery(api.categories.list, { type: "income" });
   const expenseCategories = useQuery(api.categories.list, { type: "expense" });
   const createTransaction = useMutation(api.transactions.create);
@@ -101,11 +105,10 @@ export function TransactionsView() {
   const generateUploadUrl = useMutation(api.media.generateUploadUrl);
   const parseWithAi = useAction(api.ai.parseTransaction);
 
-  // Získat unikátní roky z transakcí
-  const availableYears = allTransactions
-    ? Array.from(new Set(allTransactions.map((t) => new Date(t.date).getFullYear())))
-        .sort((a, b) => b - a)
-    : [];
+  // Roky pro filtr – ze všech dat, nejen z právě načtených transakcí
+  const availableYears = Array.from(
+    new Set([CURRENT_YEAR, ...(yearlyStats ?? []).map((y) => Number(y.year))])
+  ).sort((a, b) => b - a);
 
   // Získat unikátní kategorie z transakcí
   const availableCategories = allTransactions
@@ -487,7 +490,7 @@ export function TransactionsView() {
             <SelectValue placeholder="Rok" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Rok</SelectItem>
+            <SelectItem value="all">Všechny roky</SelectItem>
             {availableYears.map((year) => (
               <SelectItem key={year} value={year.toString()}>
                 {year}
@@ -522,12 +525,12 @@ export function TransactionsView() {
           </SelectContent>
         </Select>
 
-        {(selectedYear !== "all" || selectedCategory !== "all" || selectedPaymentMethod !== "all") && (
+        {(selectedYear !== String(CURRENT_YEAR) || selectedCategory !== "all" || selectedPaymentMethod !== "all") && (
           <Button
             variant="ghost"
             size="sm"
             onClick={() => {
-              setSelectedYear("all");
+              setSelectedYear(String(CURRENT_YEAR));
               setSelectedCategory("all");
               setSelectedPaymentMethod("all");
             }}
@@ -543,37 +546,22 @@ export function TransactionsView() {
       {transactions && transactions.length > 0 && (
         <Card className="bg-muted/50">
           <CardContent className="py-3 px-4">
-            <div className="flex justify-between items-center text-sm">
-              <span className="text-muted-foreground">
-                {transactions.length} {transactions.length === 1 ? "transakce" : transactions.length < 5 ? "transakce" : "transakcí"}
-              </span>
-              <div className="flex gap-4 items-center">
-                {(() => {
-                  const inc = transactions.filter((t) => t.type === "income").reduce((sum, t) => sum + t.amount, 0);
-                  const exp = transactions.filter((t) => t.type === "expense").reduce((sum, t) => sum + t.amount, 0);
-                  const balance = inc - exp;
-                  return (
-                    <span className={`text-base font-bold ${balance >= 0 ? "text-income" : "text-expense"}`}>
-                      {balance >= 0 ? "+" : ""}{formatCurrency(balance)}
-                    </span>
-                  );
-                })()}
-                <span className="text-income font-medium">
-                  +{formatCurrency(
-                    transactions
-                      .filter((t) => t.type === "income")
-                      .reduce((sum, t) => sum + t.amount, 0)
-                  )}
-                </span>
-                <span className="text-expense font-medium">
-                  -{formatCurrency(
-                    transactions
-                      .filter((t) => t.type === "expense")
-                      .reduce((sum, t) => sum + t.amount, 0)
-                  )}
-                </span>
-              </div>
-            </div>
+            {(() => {
+              const inc = transactions.filter((t) => t.type === "income").reduce((sum, t) => sum + t.amount, 0);
+              const exp = transactions.filter((t) => t.type === "expense").reduce((sum, t) => sum + t.amount, 0);
+              const balance = inc - exp;
+              return (
+                <div className="flex justify-between items-center text-sm">
+                  <span className={`text-base font-bold ${balance >= 0 ? "text-income" : "text-expense"}`}>
+                    {balance >= 0 ? "+" : ""}{formatCurrency(balance)}
+                  </span>
+                  <div className="flex gap-4 items-center">
+                    <span className="text-income font-medium">+{formatCurrency(inc)}</span>
+                    <span className="text-expense font-medium">-{formatCurrency(exp)}</span>
+                  </div>
+                </div>
+              );
+            })()}
           </CardContent>
         </Card>
       )}
