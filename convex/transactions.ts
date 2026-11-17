@@ -596,11 +596,17 @@ export const markReimbursed = mutation({
 // Inventura hotovosti
 const CASH_DIFF_CATEGORY = "Inventurní rozdíl"
 
+// Inventuru vidí a dělá jen hospodář
 export const listCashCounts = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await getApprovedUserId(ctx)
+    const userId = await getAuthUserId(ctx)
     if (!userId) return []
+    const profile = await ctx.db
+      .query("userProfiles")
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
+      .first()
+    if (!profile || profile.role !== "admin") return []
     return await ctx.db.query("cashCounts").withIndex("by_countedAt").order("desc").take(10)
   },
 })
@@ -617,8 +623,8 @@ export const recordCashCount = mutation({
       .query("userProfiles")
       .withIndex("by_userId", (q) => q.eq("userId", userId))
       .first()
-    if (!profile || (profile.role !== "admin" && profile.role !== "deputy")) {
-      throw new Error("Nemáte oprávnění dělat inventuru")
+    if (!profile || profile.role !== "admin") {
+      throw new Error("Inventuru může dělat jen hospodář")
     }
     if (!isFinite(args.counted) || args.counted < 0) throw new Error("Neplatná částka")
 

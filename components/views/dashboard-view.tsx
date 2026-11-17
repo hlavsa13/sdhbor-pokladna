@@ -37,6 +37,8 @@ export function DashboardView() {
   const [isCashCountOpen, setIsCashCountOpen] = useState(false);
   const role = currentUser?.profile?.role;
   const canManageCash = role === "admin" || role === "deputy";
+  // Inventuru pokladny dělá a vidí jen hospodář
+  const canCountCash = role === "admin";
   const toReimburseTotal = (toReimburse ?? []).reduce((sum, t) => sum + t.amount, 0);
 
   const formatCurrency = (amount: number) => {
@@ -115,7 +117,7 @@ export function DashboardView() {
       </Card>
 
       {/* Inventura hotovosti */}
-      {canManageCash && (
+      {canCountCash && (
         <div className="-mt-3 flex justify-end">
           <Button variant="outline" size="sm" onClick={() => setIsCashCountOpen(true)}>
             <Banknote className="w-4 h-4 mr-1.5" />
