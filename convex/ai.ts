@@ -44,7 +44,7 @@ const TOOL = {
         enum: ["income", "expense"],
         description: "income = příjem, expense = výdaj. Účtenka z obchodu je téměř vždy výdaj.",
       },
-      amount: { type: "number", description: "Celková částka v Kč (u účtenky řádek CELKEM / K ÚHRADĚ, ne mezioučet ani DPH)." },
+      amount: { type: "number", description: "Celková částka v Kč (u účtenky řádek CELKEM / K ÚHRADĚ, ne mezisoučet ani DPH)." },
       description: { type: "string", description: "Krátký český popis, např. 'Hornbach – hadice, spojka' nebo 'Pronájem hasičárny'." },
       category: { type: "string", description: "Přesný název jedné z povolených kategorií, nebo prázdný řetězec, pokud žádná nesedí." },
       paymentMethod: {
