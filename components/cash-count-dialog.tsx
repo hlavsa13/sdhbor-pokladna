@@ -116,15 +116,13 @@ export function CashCountDialog({ open, onOpenChange, expected }: Props) {
         <Button onClick={handleSave} disabled={saving || !anyEntered || expected === undefined}>
           {saving ? (
             <Loader2 className="w-4 h-4 animate-spin" />
-          ) : difference === 0 ? (
-            "Uložit inventuru"
           ) : (
-            "Uložit inventuru a zapsat rozdíl"
+            "Uložit inventuru"
           )}
         </Button>
         {difference !== 0 && anyEntered && (
           <p className="text-xs text-muted-foreground -mt-2">
-            Rozdíl se zapíše jako {difference > 0 ? "příjem" : "výdaj"} v hotovosti v kategorii „Inventurní rozdíl“.
+            Rozdíl se do transakcí nezapisuje – případně ho doúčtuj ručně jako {difference > 0 ? "příjem" : "výdaj"} v hotovosti.
           </p>
         )}
 

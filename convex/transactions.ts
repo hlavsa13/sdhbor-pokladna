@@ -2,7 +2,6 @@ import { v } from "convex/values"
 import { mutation, query, internalMutation, internalQuery } from "./_generated/server"
 import { getAuthUserId } from "@convex-dev/auth/server"
 import { getApprovedUserId } from "./access"
-import type { Id } from "./_generated/dataModel"
 import { describeChanges, describeTx, logAudit } from "./audit"
 
 
@@ -594,8 +593,6 @@ export const markReimbursed = mutation({
 
 // ---------------------------------------------------------------------------
 // Inventura hotovosti
-const CASH_DIFF_CATEGORY = "Inventurní rozdíl"
-
 // Inventuru vidí a dělá jen hospodář
 export const listCashCounts = query({
   args: {},
@@ -636,44 +633,15 @@ export const recordCashCount = mutation({
       cash.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0)
 
     const difference = Math.round((args.counted - expected) * 100) / 100
-    const now = new Date()
-    const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
 
-    let transactionId: Id<"transactions"> | undefined = undefined
-    if (difference !== 0) {
-      const type = difference > 0 ? "income" : "expense"
-      // Kategorie „Inventurní rozdíl“ – založit, pokud pro daný typ ještě neexistuje
-      const existingCategory = await ctx.db
-        .query("categories")
-        .withIndex("by_name", (q) => q.eq("name", CASH_DIFF_CATEGORY))
-        .filter((q) => q.eq(q.field("type"), type))
-        .first()
-      if (!existingCategory) {
-        await ctx.db.insert("categories", { name: CASH_DIFF_CATEGORY, type, createdAt: Date.now() })
-      }
-      transactionId = await ctx.db.insert("transactions", {
-        type,
-        amount: Math.abs(difference),
-        description: "Inventura pokladny – rozdíl",
-        category: CASH_DIFF_CATEGORY,
-        paymentMethod: "cash",
-        date: today,
-        createdBy: userId,
-        createdAt: Date.now(),
-      })
-      const created = await ctx.db.get(transactionId)
-      if (created) {
-        await logAudit(ctx, userId, { action: "create", entityId: transactionId, summary: `Inventura: ${describeTx(created)}` })
-      }
-    }
-
+    // Rozdíl se do transakcí nezapisuje – inventura je jen evidence hospodáře,
+    // případný rozdíl doúčtuje ručně
     await ctx.db.insert("cashCounts", {
       countedAt: Date.now(),
       counted: args.counted,
       expected,
       difference,
       denominations: args.denominations,
-      transactionId,
       createdBy: userId,
     })
 
