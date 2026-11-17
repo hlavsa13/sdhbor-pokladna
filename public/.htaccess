@@ -1,11 +1,16 @@
 # Wedos – statická verze SDH Hospodaření
 
+# Vždy HTTPS. Cíl se skládá z cesty relativní ke složce aplikace ($1), ne z REQUEST_URI –
+# ten na Wedosu obsahuje interní cestu /subdom/pokladna/ a ta by se objevila v adrese.
+RewriteEngine On
+RewriteCond %{HTTPS} off
+RewriteRule ^(.*)$ https://%{HTTP_HOST}/$1 [R=302,L]
 
 ErrorDocument 404 /404.html
 
 <IfModule mod_headers.c>
   # Soubory v _next/static mají v názvu hash – můžou se cachovat napořád
-  <If "%{REQUEST_URI} =~ m#^/_next/static/#">
+  <If "%{REQUEST_URI} =~ m#/_next/static/#">
     Header set Cache-Control "public, max-age=31536000, immutable"
   </If>
   # HTML vždy znovu ověřit, aby se nová verze projevila hned
