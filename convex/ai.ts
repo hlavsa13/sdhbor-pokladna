@@ -33,8 +33,11 @@ export const internalCategories = internalQuery({
   },
 })
 
-const TOOL = {
-  name: "zapsat_transakci",
+const TOOL_NAME = "zapsat_transakci"
+
+// Nástroj se sestavuje pro každý dotaz, aby kategorie byla pevný výběr ze seznamu
+const buildTool = (categoryNames: string[]) => ({
+  name: TOOL_NAME,
   description: "Zapíše rozpoznanou transakci do pokladny hasičského sboru.",
   input_schema: {
     type: "object",
@@ -46,7 +49,11 @@ const TOOL = {
       },
       amount: { type: "number", description: "Celková částka v Kč (u účtenky řádek CELKEM / K ÚHRADĚ, ne mezisoučet ani DPH)." },
       description: { type: "string", description: "Krátký český popis, např. 'Hornbach – hadice, spojka' nebo 'Pronájem hasičárny'." },
-      category: { type: "string", description: "Přesný název jedné z povolených kategorií, nebo prázdný řetězec, pokud žádná nesedí." },
+      category: {
+        type: "string",
+        enum: [...categoryNames, ""],
+        description: "Nejbližší vhodná kategorie ze seznamu. Prázdný řetězec jen tehdy, když opravdu žádná nesouvisí.",
+      },
       paymentMethod: {
         type: "string",
         enum: ["cash", "bank"],
@@ -54,9 +61,12 @@ const TOOL = {
       },
       date: { type: "string", description: "Datum ve formátu YYYY-MM-DD. Pokud nelze určit, vynech." },
     },
-    required: ["type", "amount", "description"],
+    required: ["type", "amount", "description", "category"],
   },
-}
+})
+
+const normalize = (s: string) =>
+  s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim()
 
 function validate(raw: Record<string, unknown>, categories: { name: string; type: string }[]): AiTransaction {
   const out: AiTransaction = {}
@@ -65,9 +75,9 @@ function validate(raw: Record<string, unknown>, categories: { name: string; type
   if (isFinite(amount) && amount > 0) out.amount = Math.round(amount * 100) / 100
   if (typeof raw.description === "string" && raw.description.trim()) out.description = raw.description.trim().slice(0, 200)
   if (typeof raw.category === "string") {
-    const match = categories.find(
-      (c) => c.name.toLowerCase() === (raw.category as string).toLowerCase() && (!out.type || c.type === out.type)
-    )
+    const wanted = normalize(raw.category)
+    const candidates = categories.filter((c) => normalize(c.name) === wanted)
+    const match = candidates.find((c) => !out.type || c.type === out.type) ?? candidates[0]
     if (match) {
       out.category = match.name
       out.type ??= match.type as "income" | "expense"
@@ -107,7 +117,7 @@ export const parseTransaction = action({
       `Dnešní datum je ${today}. Relativní data (včera, minulý pátek) přepočítej podle něj.`,
       `Povolené kategorie příjmů: ${categoryList("income")}.`,
       `Povolené kategorie výdajů: ${categoryList("expense")}.`,
-      "Kategorii vyber přesně podle názvu ze seznamu. Pokud žádná nesedí, nech ji prázdnou – nevymýšlej nové.",
+      "Vždy vyber nejbližší vhodnou kategorii ze seznamu podle obsahu (např. nápoje a jídlo k akci, materiál k vybavení). Prázdnou ji nech jen tehdy, když opravdu žádná nesouvisí. Hospodář návrh před uložením zkontroluje.",
       "Částky jsou v Kč. Nevymýšlej údaje, které v podkladu nejsou.",
     ].join("\n")
 
@@ -134,8 +144,8 @@ export const parseTransaction = action({
           model: process.env.AI_MODEL || DEFAULT_MODEL,
           max_tokens: 500,
           system,
-          tools: [TOOL],
-          tool_choice: { type: "tool", name: TOOL.name },
+          tools: [buildTool(Array.from(new Set(categories.map((c) => c.name))))],
+          tool_choice: { type: "tool", name: TOOL_NAME },
           messages: [{ role: "user", content }],
         }),
       })
