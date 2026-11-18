@@ -275,8 +275,55 @@ export function MembersView() {
     setIsEditing(false);
   };
 
+  // Výběr roku a statistiky – na počítači v jednom řádku
+  const renderYearSelector = () => (
+  <Card className="h-full">
+          <CardContent className="py-2 h-full flex items-center justify-between">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setCurrentYear((y) => y - 1)}
+              disabled={currentYear <= minYear}
+              aria-label="Předchozí rok"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
+            <p className="text-base font-semibold">Rok {currentYear}</p>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setCurrentYear((y) => y + 1)}
+              disabled={currentYear >= THIS_YEAR}
+              aria-label="Další rok"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </CardContent>
+        </Card>
+  );
+  const renderStatsCards = () => memberStats && (
+      <>
+        <Card>
+          <CardContent className="pt-4 pb-3">
+            <p className="text-2xl font-bold">{members?.length ?? 0}</p>
+            <p className="text-sm text-muted-foreground">Nalezeno členů</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4 pb-3">
+            <p className="text-2xl font-bold text-income">
+              {memberStats.paidFeesCount}/{memberStats.activeMembers}
+            </p>
+            <p className="text-sm text-muted-foreground">Zaplaceno {currentYear}</p>
+          </CardContent>
+        </Card>
+      </>
+    );
+
   return (
-    <div className="p-4 space-y-4">
+    <div className="p-4 md:p-6 space-y-4 max-w-6xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">Členové</h1>
@@ -294,33 +341,43 @@ export function MembersView() {
         )}
       </div>
 
-      {/* Výběr roku příspěvků */}
-      <Card>
-        <CardContent className="py-2 flex items-center justify-between">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={() => setCurrentYear((y) => y - 1)}
-            disabled={currentYear <= minYear}
-            aria-label="Předchozí rok"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </Button>
-          <p className="text-base font-semibold">Rok {currentYear}</p>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={() => setCurrentYear((y) => y + 1)}
-            disabled={currentYear >= THIS_YEAR}
-            aria-label="Další rok"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </Button>
-        </CardContent>
-      </Card>
+      {/* Výběr roku příspěvků – telefon */}
+      <div className="md:hidden">
+        <Card>
+          <CardContent className="py-2 flex items-center justify-between">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setCurrentYear((y) => y - 1)}
+              disabled={currentYear <= minYear}
+              aria-label="Předchozí rok"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
+            <p className="text-base font-semibold">Rok {currentYear}</p>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setCurrentYear((y) => y + 1)}
+              disabled={currentYear >= THIS_YEAR}
+              aria-label="Další rok"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
 
+      {/* Počítač: rok a statistiky v jednom řádku */}
+      <div className="hidden md:grid md:grid-cols-[220px_1fr_1fr] md:gap-3 md:items-stretch">
+        {renderYearSelector()}
+        {renderStatsCards()}
+      </div>
+
+      {/* Filtry – na počítači v jedné řadě */}
+      <div className="space-y-4 md:space-y-0 md:flex md:flex-wrap md:gap-x-6 md:gap-y-3 md:items-end">
       {/* Filtr podle typu */}
       <div className="space-y-2">
         <p className="text-xs text-muted-foreground font-medium">Typ člena</p>
@@ -453,31 +510,34 @@ export function MembersView() {
           </div>
         </div>
       </div>
+      </div>
 
-      {/* Statistiky */}
-      {memberStats && (
-        <div className="grid grid-cols-2 gap-3">
-          <Card>
-            <CardContent className="pt-4 pb-3">
-              <p className="text-2xl font-bold">{members?.length ?? 0}</p>
-              <p className="text-sm text-muted-foreground">
-                Nalezeno členů
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-4 pb-3">
-              <p className="text-2xl font-bold text-income">
-                {memberStats.paidFeesCount}/{memberStats.activeMembers}
-              </p>
-              <p className="text-sm text-muted-foreground">Zaplaceno {currentYear}</p>
-            </CardContent>
-          </Card>
-        </div>
-      )}
+      {/* Statistiky – telefon */}
+      <div className="md:hidden">
+        {memberStats && (
+          <div className="grid grid-cols-2 gap-3">
+            <Card>
+              <CardContent className="pt-4 pb-3">
+                <p className="text-2xl font-bold">{members?.length ?? 0}</p>
+                <p className="text-sm text-muted-foreground">
+                  Nalezeno členů
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4 pb-3">
+                <p className="text-2xl font-bold text-income">
+                  {memberStats.paidFeesCount}/{memberStats.activeMembers}
+                </p>
+                <p className="text-sm text-muted-foreground">Zaplaceno {currentYear}</p>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+      </div>
 
-      {/* Seznam členů */}
-      <div className="space-y-2">
+      {/* Seznam členů – na počítači ve sloupcích */}
+      <div className="space-y-2 md:space-y-0 md:grid md:grid-cols-2 xl:grid-cols-3 md:gap-2">
         {members && members.length > 0 ? (
           members.map((member) => (
             <Card
@@ -560,7 +620,7 @@ export function MembersView() {
             </Card>
           ))
         ) : (
-          <Card>
+          <Card className="md:col-span-full">
             <CardContent className="py-8 text-center">
               <p className="text-muted-foreground">Zatím žádní členové</p>
             </CardContent>
