@@ -106,11 +106,18 @@ export const getStats = query({
     
     const paidFees = fees.filter((f) => f.status === "paid")
     const totalCollected = paidFees.reduce((sum, f) => sum + f.amount, 0)
+
+    // Vyřízené příspěvky aktivních členů: zaplaceno nebo osvobozeno (60+)
+    const feeByMember = new Map(fees.map((f) => [f.memberId, f.status]))
+    const settledCount = activeMembers.filter((m) => {
+      const status = feeByMember.get(m._id)
+      return status === "paid" || status === "exempt" || (!status && m.over60)
+    }).length
     
     return {
       totalMembers: members.length,
       activeMembers: activeMembers.length,
-      paidFeesCount: paidFees.length,
+      paidFeesCount: settledCount,
       unpaidFeesCount: fees.length - paidFees.length,
       totalCollected,
     }
