@@ -23,7 +23,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Plus,
   TrendingUp,
@@ -46,6 +45,7 @@ import {
   ScanLine,
   Search,
   User,
+  ArrowUpDown,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -493,19 +493,6 @@ export function TransactionsView() {
         )}
       </div>
 
-      {/* Filtr typ */}
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)}>
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="all">Vše</TabsTrigger>
-          <TabsTrigger value="income" className="text-income data-[state=active]:text-income">
-            Příjmy
-          </TabsTrigger>
-          <TabsTrigger value="expense" className="text-expense data-[state=active]:text-expense">
-            Výdaje
-          </TabsTrigger>
-        </TabsList>
-      </Tabs>
-
       {/* Hledání – v popisu, kategorii, jménu i částce, napříč všemi roky */}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -528,7 +515,7 @@ export function TransactionsView() {
         )}
       </div>
 
-      {/* Filtry rok a kategorie */}
+      {/* Filtry rok, typ, kategorie a platba */}
       <div className="flex gap-2 flex-wrap">
         <Select value={selectedYear} onValueChange={setSelectedYear}>
           <SelectTrigger className="w-[130px]">
@@ -542,6 +529,33 @@ export function TransactionsView() {
                 {year}
               </SelectItem>
             ))}
+          </SelectContent>
+        </Select>
+
+        {/* Typ transakce – kategorie, která k novému typu nepatří, se zruší */}
+        <Select
+          value={activeTab}
+          onValueChange={(v) => {
+            const type = v as typeof activeTab;
+            setActiveTab(type);
+            if (type !== "all" && selectedCategory !== "all") {
+              const names = (type === "income" ? incomeCategories : expenseCategories)?.map((c) => c.name) ?? [];
+              if (!names.includes(selectedCategory)) setSelectedCategory("all");
+            }
+          }}
+        >
+          <SelectTrigger className="w-[170px]">
+            <ArrowUpDown className="w-4 h-4 mr-2 text-muted-foreground" />
+            <SelectValue placeholder="Typ" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Příjmy i výdaje</SelectItem>
+            <SelectItem value="income">
+              <span className="text-income">Příjmy</span>
+            </SelectItem>
+            <SelectItem value="expense">
+              <span className="text-expense">Výdaje</span>
+            </SelectItem>
           </SelectContent>
         </Select>
 
@@ -571,12 +585,13 @@ export function TransactionsView() {
           </SelectContent>
         </Select>
 
-        {(selectedYear !== String(CURRENT_YEAR) || selectedCategory !== "all" || selectedPaymentMethod !== "all") && (
+        {(selectedYear !== String(CURRENT_YEAR) || activeTab !== "all" || selectedCategory !== "all" || selectedPaymentMethod !== "all") && (
           <Button
             variant="ghost"
             size="sm"
             onClick={() => {
               setSelectedYear(String(CURRENT_YEAR));
+              setActiveTab("all");
               setSelectedCategory("all");
               setSelectedPaymentMethod("all");
             }}
