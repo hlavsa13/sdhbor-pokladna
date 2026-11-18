@@ -31,6 +31,8 @@ export function ReportsView() {
   const expenseCategories = useQuery(api.transactions.getCategoryStats, { type: "expense", year });
   const categoryBalance = useQuery(api.transactions.getCategoryBalanceStats, { year });
   const yearlyStats = useQuery(api.transactions.getYearlyStats);
+  // Export do Excelu a PDF pro valnou hromadu jen pro hospodáře
+  const isAdmin = useQuery(api.userProfiles.isAdmin);
 
   // Dostupné roky z dat
   const availableYears = yearlyStats ? yearlyStats.map((y) => Number(y.year)) : [];
@@ -151,10 +153,12 @@ export function ReportsView() {
           <h1 className="text-xl font-bold">Přehledy</h1>
           <p className="text-sm text-muted-foreground">Statistiky hospodaření</p>
         </div>
-        <div className="flex items-center gap-2">
-          <ExcelDownloadButton />
-          <ValnaHromadaPdfButton />
-        </div>
+        {isAdmin && (
+          <div className="flex items-center gap-2">
+            <ExcelDownloadButton />
+            <ValnaHromadaPdfButton />
+          </div>
+        )}
       </div>
 
       {/* Výběr roku – platí pro celou stránku */}

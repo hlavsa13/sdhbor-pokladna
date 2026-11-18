@@ -4,15 +4,16 @@ import { navItems, ViewType } from "@/components/main-app";
 import { cn } from "@/lib/utils";
 
 interface BottomNavProps {
+  items: typeof navItems;
   activeView: ViewType;
   onViewChange: (view: ViewType) => void;
 }
 
-export function BottomNav({ activeView, onViewChange }: BottomNavProps) {
+export function BottomNav({ items, activeView, onViewChange }: BottomNavProps) {
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card border-t border-border safe-bottom">
       <div className="flex items-center justify-around h-16 max-w-lg mx-auto">
-        {navItems.map((item) => {
+        {items.map((item) => {
           const Icon = item.icon;
           const isActive = activeView === item.id;
 

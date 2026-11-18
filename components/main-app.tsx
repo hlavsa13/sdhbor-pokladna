@@ -66,6 +66,15 @@ export function MainApp() {
   };
   const currentUser = useQuery(api.userProfiles.getCurrentUser);
 
+  // Nastavení vidí jen hospodář
+  const isAdmin = currentUser?.profile?.role === "admin";
+  const visibleNavItems = navItems.filter((item) => item.id !== "settings" || isAdmin);
+  const roleLoaded = currentUser !== undefined;
+  useEffect(() => {
+    if (roleLoaded && !isAdmin && activeView === "settings") setActiveView("dashboard");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roleLoaded, isAdmin, activeView]);
+
   // Pokud uživatel nemá profil, zobrazit setup
   if (currentUser === undefined) {
     return (
@@ -91,7 +100,7 @@ export function MainApp() {
           <p className="text-base font-bold text-foreground leading-tight mt-0.5">Pokladna</p>
         </div>
         <nav className="flex-1 py-3 space-y-0.5 px-2">
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeView === item.id;
             return (
@@ -119,12 +128,12 @@ export function MainApp() {
         {activeView === "transactions" && <TransactionsView />}
         {activeView === "members" && <MembersView />}
         {activeView === "reports" && <ReportsView />}
-        {activeView === "settings" && <SettingsView />}
+        {activeView === "settings" && isAdmin && <SettingsView />}
       </main>
 
       {/* Spodní navigace — pouze mobil */}
       <div className="md:hidden">
-        <BottomNav activeView={activeView} onViewChange={setActiveView} />
+        <BottomNav items={visibleNavItems} activeView={activeView} onViewChange={setActiveView} />
       </div>
     </div>
   );
