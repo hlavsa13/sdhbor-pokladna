@@ -24,6 +24,8 @@ export function ReportsView() {
   const [showAllYears, setShowAllYears] = useState(false);
   const [chartMode, setChartMode] = useState<"result" | "balance">("result");
   const chartScrollRef = useRef<HTMLDivElement>(null);
+  // Zda jde graf posunout doleva / doprava (podle toho se ukazují šipky a vyblednutí)
+  const [chartCanScroll, setChartCanScroll] = useState({ left: false, right: false });
 
   const yearStats = useQuery(api.transactions.getStatsByYear, { year });
   const jan1Balance = useQuery(api.transactions.getBalanceBeforeYear, { year });
@@ -38,11 +40,31 @@ export function ReportsView() {
   const availableYears = yearlyStats ? yearlyStats.map((y) => Number(y.year)) : [];
   const minYear = availableYears.length > 0 ? Math.min(...availableYears) : CURRENT_YEAR;
 
+  const updateChartScroll = () => {
+    const el = chartScrollRef.current;
+    if (!el) return;
+    setChartCanScroll({
+      left: el.scrollLeft > 2,
+      right: el.scrollLeft + el.clientWidth < el.scrollWidth - 2,
+    });
+  };
+
+  const scrollChart = (direction: -1 | 1) => {
+    const el = chartScrollRef.current;
+    if (el) el.scrollBy({ left: direction * el.clientWidth * 0.7, behavior: "smooth" });
+  };
+
   // Graf po letech: po načtení odscrollovat na nejnovější roky
   useEffect(() => {
     const el = chartScrollRef.current;
     if (el) el.scrollLeft = el.scrollWidth;
+    updateChartScroll();
   }, [yearlyStats, chartMode]);
+
+  useEffect(() => {
+    window.addEventListener("resize", updateChartScroll);
+    return () => window.removeEventListener("resize", updateChartScroll);
+  }, []);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("cs-CZ", {
@@ -323,18 +345,45 @@ export function ReportsView() {
         <CardContent className="pt-4 space-y-4">
           <div className="flex items-center justify-between gap-2">
             <p className="text-sm font-semibold">Po letech</p>
+            <div className="flex items-center gap-1">
+            {(chartCanScroll.left || chartCanScroll.right) && (
+              <>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => scrollChart(-1)}
+                  disabled={!chartCanScroll.left}
+                  aria-label="Starší roky"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-7 w-7 mr-1"
+                  onClick={() => scrollChart(1)}
+                  disabled={!chartCanScroll.right}
+                  aria-label="Novější roky"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
+              </>
+            )}
             <Tabs value={chartMode} onValueChange={(v) => setChartMode(v as "result" | "balance")}>
               <TabsList className="h-8">
                 <TabsTrigger value="result" className="text-xs px-2.5">Výsledek</TabsTrigger>
                 <TabsTrigger value="balance" className="text-xs px-2.5">Konečný stav</TabsTrigger>
               </TabsList>
             </Tabs>
+            </div>
           </div>
 
           {chartData.length > 0 ? (
             <>
               {/* Graf – klepnutím na sloupec se vybere rok */}
-              <div ref={chartScrollRef} className="overflow-x-auto">
+              <div className="relative">
+              <div ref={chartScrollRef} onScroll={updateChartScroll} className="overflow-x-auto no-scrollbar">
                 <div className="flex items-end gap-3 h-48 min-w-max px-1">
                   {chartData.map((d) => {
                     const isPositive = d.value >= 0;
@@ -368,6 +417,14 @@ export function ReportsView() {
                     );
                   })}
                 </div>
+              </div>
+              {/* Vyblednutí na straně, kde graf pokračuje */}
+              {chartCanScroll.left && (
+                <div className="pointer-events-none absolute inset-y-0 left-0 w-10 bg-gradient-to-r from-card to-transparent" />
+              )}
+              {chartCanScroll.right && (
+                <div className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-card to-transparent" />
+              )}
               </div>
 
               {/* Tabulka – klepnutím na řádek se vybere rok */}
