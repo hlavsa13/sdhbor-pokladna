@@ -21,6 +21,8 @@ function withoutPersonalData<T extends { email?: string; phone?: string; birthDa
 export const list = query({
   args: {
     activeOnly: v.optional(v.boolean()),
+    // Rok, za který se zobrazí stav příspěvku (výchozí letošní)
+    year: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const userId = await getApprovedUserId(ctx)
@@ -33,8 +35,8 @@ export const list = query({
           .collect()
       : await ctx.db.query("members").collect()
     
-    // Přidat informace o příspěvcích za aktuální rok
-    const currentYear = new Date().getFullYear()
+    // Přidat informace o příspěvcích za vybraný rok
+    const currentYear = args.year ?? new Date().getFullYear()
     const membersWithFees = await Promise.all(
       members.map(async (member) => {
         const fee = await ctx.db
@@ -89,16 +91,27 @@ export const get = query({
   },
 })
 
-export const getStats = query({
+// Roky, za které existují záznamy o příspěvcích
+export const feeYears = query({
   args: {},
   handler: async (ctx) => {
+    const userId = await getApprovedUserId(ctx)
+    if (!userId) return []
+    const fees = await ctx.db.query("membershipFees").collect()
+    return [...new Set(fees.map((f) => f.year))].sort((a, b) => a - b)
+  },
+})
+
+export const getStats = query({
+  args: { year: v.optional(v.number()) },
+  handler: async (ctx, args) => {
     const userId = await getApprovedUserId(ctx)
     if (!userId) return null
     
     const members = await ctx.db.query("members").collect()
     const activeMembers = members.filter((m) => m.active)
     
-    const currentYear = new Date().getFullYear()
+    const currentYear = args.year ?? new Date().getFullYear()
     const fees = await ctx.db
       .query("membershipFees")
       .withIndex("by_year", (q) => q.eq("year", currentYear))

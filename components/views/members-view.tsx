@@ -48,6 +48,7 @@ import {
   FileSpreadsheet,
   Banknote,
   Building2,
+  ChevronLeft,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ImportExcelDialog } from "@/components/import-excel-dialog";
@@ -57,6 +58,8 @@ type TypeFilter = "all" | MemberType;
 type PaymentFilter = "all" | "paid" | "unpaid" | "exempt";
 type PaymentMethodFilter = "all" | "cash" | "bank";
 type AgeFilter = "all" | "over60";
+
+const THIS_YEAR = new Date().getFullYear();
 
 const memberTypeLabels: Record<MemberType, string> = {
   man: "Muž",
@@ -77,9 +80,11 @@ export function MembersView() {
   const isAdmin = useQuery(api.userProfiles.isAdmin);
   const isSecretary = useQuery(api.userProfiles.isSecretary);
   const canManageMembers = isAdmin || isSecretary;
-  const allMembers = useQuery(api.members.list, { activeOnly: false });
-  
-  const currentYear = new Date().getFullYear();
+  // Vybraný rok příspěvků (výchozí letošní)
+  const [currentYear, setCurrentYear] = useState(THIS_YEAR);
+  const feeYears = useQuery(api.members.feeYears);
+  const minYear = feeYears && feeYears.length > 0 ? Math.min(...feeYears, THIS_YEAR) : THIS_YEAR;
+  const allMembers = useQuery(api.members.list, { activeOnly: false, year: currentYear });
   
   // Filtrování členů
   const members = allMembers?.filter((member) => {
@@ -106,7 +111,7 @@ export function MembersView() {
     api.members.get,
     selectedMember ? { id: selectedMember } : "skip"
   );
-  const memberStats = useQuery(api.members.getStats);
+  const memberStats = useQuery(api.members.getStats, { year: currentYear });
 
   const createMember = useMutation(api.members.create);
   const updateMember = useMutation(api.members.update);
@@ -288,6 +293,33 @@ export function MembersView() {
           </div>
         )}
       </div>
+
+      {/* Výběr roku příspěvků */}
+      <Card>
+        <CardContent className="py-2 flex items-center justify-between">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => setCurrentYear((y) => y - 1)}
+            disabled={currentYear <= minYear}
+            aria-label="Předchozí rok"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </Button>
+          <p className="text-base font-semibold">Rok {currentYear}</p>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => setCurrentYear((y) => y + 1)}
+            disabled={currentYear >= THIS_YEAR}
+            aria-label="Další rok"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </Button>
+        </CardContent>
+      </Card>
 
       {/* Filtr podle typu */}
       <div className="space-y-2">
