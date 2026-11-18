@@ -673,7 +673,7 @@ export function TransactionsView() {
                           <>
                             <span className="mx-1">•</span>
                             <span className="flex items-center gap-0.5">
-                              <User className="w-3 h-3" /> Platil: {transaction.paidBy}
+                              <User className="w-3 h-3" /> Platil(a): {transaction.paidBy}
                             </span>
                           </>
                         )}
