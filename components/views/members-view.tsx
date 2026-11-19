@@ -46,6 +46,7 @@ import {
   Baby,
   Pencil,
   FileSpreadsheet,
+  ClipboardList,
   Banknote,
   Building2,
   ChevronLeft,
@@ -116,6 +117,30 @@ export function MembersView() {
   const createMember = useMutation(api.members.create);
   const updateMember = useMutation(api.members.update);
   const createFee = useMutation(api.members.createFee);
+  const createFeesForYear = useMutation(api.members.createFeesForYear);
+  const feeAmounts = useQuery(api.settings.getFeeAmounts);
+  const [isBulkFeesOpen, setIsBulkFeesOpen] = useState(false);
+  const [bulkFeesBusy, setBulkFeesBusy] = useState(false);
+
+  // Aktivní členové bez příspěvku ve vybraném roce
+  const activeWithoutFee = (allMembers ?? []).filter((m) => m.active && !m.currentYearFee);
+  const bulkExemptCount = activeWithoutFee.filter((m) => m.over60).length;
+  const bulkUnpaidCount = activeWithoutFee.length - bulkExemptCount;
+  const activeCount = (allMembers ?? []).filter((m) => m.active).length;
+  const bulkSkippedCount = activeCount - activeWithoutFee.length;
+  const showBulkFees = !!canManageMembers && allMembers !== undefined && activeWithoutFee.length > 0;
+
+  const handleCreateFeesForYear = async () => {
+    setBulkFeesBusy(true);
+    try {
+      await createFeesForYear({ year: currentYear });
+      setIsBulkFeesOpen(false);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Založení příspěvků se nepodařilo");
+    } finally {
+      setBulkFeesBusy(false);
+    }
+  };
   const updateFee = useMutation(api.members.updateFee);
 
   const [formData, setFormData] = useState({
@@ -295,7 +320,7 @@ export function MembersView() {
               size="icon"
               className="h-8 w-8"
               onClick={() => setCurrentYear((y) => y + 1)}
-              disabled={currentYear >= THIS_YEAR}
+              disabled={currentYear >= THIS_YEAR + 1}
               aria-label="Další rok"
             >
               <ChevronRight className="w-4 h-4" />
@@ -327,8 +352,16 @@ export function MembersView() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">Členové</h1>
+        <div className="flex gap-2">
+          {showBulkFees && (
+            <Button size="sm" variant="outline" onClick={() => setIsBulkFeesOpen(true)}>
+              <ClipboardList className="w-4 h-4 mr-1" />
+              <span className="hidden sm:inline">Založit příspěvky&nbsp;</span>
+              {currentYear}
+            </Button>
+          )}
         {isAdmin && (
-          <div className="flex gap-2">
+          <>
             <Button size="sm" variant="outline" onClick={() => setIsImportOpen(true)}>
               <FileSpreadsheet className="w-4 h-4 mr-1" />
               Import
@@ -337,9 +370,51 @@ export function MembersView() {
               <UserPlus className="w-4 h-4 mr-1" />
               Přidat
             </Button>
-          </div>
+          </>
         )}
+        </div>
       </div>
+
+      {/* Upozornění: příspěvky na vybraný rok chybí */}
+      {showBulkFees && (
+        <div className="rounded-lg border border-dashed border-amber-500/60 bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-300 flex flex-wrap items-center justify-between gap-2">
+          <span>
+            Příspěvky na rok {currentYear} nejsou založené u {activeWithoutFee.length} z {activeCount} aktivních členů.
+          </span>
+          <Button size="sm" variant="outline" className="bg-background" onClick={() => setIsBulkFeesOpen(true)}>
+            <ClipboardList className="w-4 h-4 mr-1" />
+            Založit příspěvky {currentYear}
+          </Button>
+        </div>
+      )}
+
+      {/* Potvrzení hromadného založení příspěvků */}
+      <Dialog open={isBulkFeesOpen} onOpenChange={setIsBulkFeesOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Založit příspěvky na rok {currentYear}?</DialogTitle>
+          </DialogHeader>
+          <ul className="list-disc pl-5 space-y-1 text-sm">
+            <li>
+              {bulkUnpaidCount} členů – nezaplaceno (dospělý {feeAmounts?.adult ?? "…"} Kč, dítě {feeAmounts?.child ?? "…"} Kč)
+            </li>
+            <li>{bulkExemptCount} členů 60+ – osvobozeni</li>
+            {bulkSkippedCount > 0 && <li>{bulkSkippedCount} členů už příspěvek má – přeskočí se</li>}
+          </ul>
+          <p className="text-sm text-muted-foreground">
+            Částky se berou z Nastavení → Výše členských příspěvků. Jde jen o aktivní členy.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setIsBulkFeesOpen(false)} disabled={bulkFeesBusy}>
+              Zrušit
+            </Button>
+            <Button onClick={handleCreateFeesForYear} disabled={bulkFeesBusy}>
+              {bulkFeesBusy && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Založit
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Výběr roku příspěvků – telefon */}
       <div className="md:hidden">
@@ -361,7 +436,7 @@ export function MembersView() {
               size="icon"
               className="h-8 w-8"
               onClick={() => setCurrentYear((y) => y + 1)}
-              disabled={currentYear >= THIS_YEAR}
+              disabled={currentYear >= THIS_YEAR + 1}
               aria-label="Další rok"
             >
               <ChevronRight className="w-4 h-4" />

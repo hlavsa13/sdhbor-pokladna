@@ -344,6 +344,74 @@ export const updateFee = mutation({
   },
 })
 
+// Hromadné založení příspěvků na rok pro všechny aktivní členy.
+// Kdo už příspěvek na rok má, se přeskočí; členové 60+ jsou osvobozeni.
+export const createFeesForYear = mutation({
+  args: { year: v.number() },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx)
+    if (!userId) throw new Error("Nepřihlášený uživatel")
+
+    const profile = await ctx.db
+      .query("userProfiles")
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
+      .first()
+
+    if (!profile || (profile.role !== "admin" && profile.role !== "secretary")) {
+      throw new Error("Nemáte oprávnění spravovat příspěvky")
+    }
+    const thisYear = new Date().getFullYear()
+    if (args.year > thisYear + 1) throw new Error("Příspěvky lze založit nejvýš na příští rok")
+
+    const adultSetting = await ctx.db.query("appSettings").withIndex("by_key", (q) => q.eq("key", "feeAmount_adult")).first()
+    const childSetting = await ctx.db.query("appSettings").withIndex("by_key", (q) => q.eq("key", "feeAmount_child")).first()
+    const adultAmount = adultSetting?.value ?? 200
+    const childAmount = childSetting?.value ?? 100
+
+    const existingFees = await ctx.db
+      .query("membershipFees")
+      .withIndex("by_year", (q) => q.eq("year", args.year))
+      .collect()
+    const hasFee = new Set(existingFees.map((f) => f.memberId))
+
+    const members = await ctx.db
+      .query("members")
+      .withIndex("by_active", (q) => q.eq("active", true))
+      .collect()
+
+    let created = 0
+    let exempt = 0
+    let skipped = 0
+    for (const member of members) {
+      if (hasFee.has(member._id)) {
+        skipped++
+        continue
+      }
+      if (member.over60) {
+        await ctx.db.insert("membershipFees", {
+          memberId: member._id,
+          year: args.year,
+          amount: 0,
+          status: "exempt",
+          createdAt: Date.now(),
+        })
+        exempt++
+      } else {
+        await ctx.db.insert("membershipFees", {
+          memberId: member._id,
+          year: args.year,
+          amount: member.memberType === "child" ? childAmount : adultAmount,
+          status: "unpaid",
+          createdAt: Date.now(),
+        })
+        created++
+      }
+    }
+
+    return { created, exempt, skipped }
+  },
+})
+
 // Interní hromadné označení (bez autentizace – pro CLI)
 export const internalMarkAllFeesPaidForYear = internalMutation({
   args: {
