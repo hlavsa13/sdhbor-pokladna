@@ -14,6 +14,11 @@ async function canSeePersonalData(ctx: QueryCtx, userId: Id<"users">) {
   return !!profile && ["admin", "deputy", "secretary"].includes(profile.role)
 }
 
+// Člen se do roku počítá, jen pokud je aktivní a vstoupil nejpozději v tom roce
+function isMemberInYear(member: { active: boolean; joinedAt: number }, year: number) {
+  return member.active && new Date(member.joinedAt).getUTCFullYear() <= year
+}
+
 function withoutPersonalData<T extends { email?: string; phone?: string; birthDate?: number }>(member: T): T {
   return { ...member, email: undefined, phone: undefined, birthDate: undefined } as T
 }
@@ -109,9 +114,10 @@ export const getStats = query({
     if (!userId) return null
     
     const members = await ctx.db.query("members").collect()
-    const activeMembers = members.filter((m) => m.active)
-    
     const currentYear = args.year ?? new Date().getFullYear()
+    // Aktivní členové, kteří už v daném roce byli členy
+    const activeMembers = members.filter((m) => isMemberInYear(m, currentYear))
+
     const fees = await ctx.db
       .query("membershipFees")
       .withIndex("by_year", (q) => q.eq("year", currentYear))
@@ -383,6 +389,8 @@ export const createFeesForYear = mutation({
     let exempt = 0
     let skipped = 0
     for (const member of members) {
+      // Kdo vstoupí až později, příspěvek na tento rok nedostane
+      if (!isMemberInYear(member, args.year)) continue
       if (hasFee.has(member._id)) {
         skipped++
         continue

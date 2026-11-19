@@ -122,11 +122,13 @@ export function MembersView() {
   const [isBulkFeesOpen, setIsBulkFeesOpen] = useState(false);
   const [bulkFeesBusy, setBulkFeesBusy] = useState(false);
 
-  // Aktivní členové bez příspěvku ve vybraném roce
-  const activeWithoutFee = (allMembers ?? []).filter((m) => m.active && !m.currentYearFee);
+  // Aktivní členové bez příspěvku ve vybraném roce (jen ti, kdo už v tom roce byli členy)
+  const isInYear = (m: { active: boolean; joinedAt: number }) =>
+    m.active && new Date(m.joinedAt).getUTCFullYear() <= currentYear;
+  const activeWithoutFee = (allMembers ?? []).filter((m) => isInYear(m) && !m.currentYearFee);
   const bulkExemptCount = activeWithoutFee.filter((m) => m.over60).length;
   const bulkUnpaidCount = activeWithoutFee.length - bulkExemptCount;
-  const activeCount = (allMembers ?? []).filter((m) => m.active).length;
+  const activeCount = (allMembers ?? []).filter(isInYear).length;
   const bulkSkippedCount = activeCount - activeWithoutFee.length;
   const showBulkFees = !!canManageMembers && allMembers !== undefined && activeWithoutFee.length > 0;
 
